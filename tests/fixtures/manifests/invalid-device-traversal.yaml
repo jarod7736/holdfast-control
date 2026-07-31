@@ -1,0 +1,11 @@
+device:
+  id: invalid-device-traversal
+  profile: linux-wsl
+capabilities:
+  opencode: {required: true, config_profile: personal-development}
+  providers: [opencode-cloud]
+  mcp_servers: [github]
+credentials:
+  - id: traversal-secret
+    reference: op://holdfast-lan/../../../etc/passwd
+    inject_as: LITELLM_API_KEY

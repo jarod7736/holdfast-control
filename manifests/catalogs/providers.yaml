@@ -1,0 +1,41 @@
+providers:
+  - id: opencode-cloud
+    type: opencode
+    base_url: https://api.opencode.dev/v1
+    credentials:
+      - id: opencode-cloud-api-key
+        reference: op://holdfast-lan/opencode-cloud-api-key/credential
+  - id: amd-halo
+    type: opencode
+    base_url: http://amd-halo.holdfast.lan:13305/api/v1
+    credentials:
+      - id: amd-halo-api-key
+        reference: op://holdfast-lan/amd-halo-api-key/credential
+
+mcp-servers:
+  - id: github
+    url: http://192.168.1.181:4000/mcp/github/mcp
+    credentials:
+      - id: github-mcp-key
+        reference: op://holdfast-lan/github-mcp-key/credential
+  - id: halo-commander
+    url: http://192.168.1.181:4000/mcp/halo-commander/mcp
+    credentials:
+      - id: halo-commander-mcp-key
+        reference: op://holdfast-lan/halo-commander-mcp-key/credential
+  - id: nas-files
+    url: http://192.168.1.181:4000/mcp/nas-files/mcp
+    credentials:
+      - id: nas-files-mcp-key
+        reference: op://holdfast-lan/nas-files-mcp-key/credential
+
+skills:
+  - id: file-search
+    name: File Search
+    description: Search for files and content
+    version: 1.0.0
+    source: opencode
+    dependencies: []
+    checksum: ""
+    owner: holdfast-team
+    purpose: development

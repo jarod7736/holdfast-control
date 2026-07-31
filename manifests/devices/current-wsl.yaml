@@ -1,0 +1,11 @@
+device:
+  id: current-wsl
+  profile: linux-wsl
+capabilities:
+  opencode: {required: true, config_profile: personal-development}
+  providers: [opencode-cloud, amd-halo]
+  mcp_servers: [github, halo-commander, nas-files]
+credentials:
+  - id: litellm-current-wsl
+    reference: op://holdfast-lan/litellm-current-wsl/credential
+    inject_as: LITELLM_API_KEY

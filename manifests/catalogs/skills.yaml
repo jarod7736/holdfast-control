@@ -1,0 +1,10 @@
+skills:
+  - id: file-search
+    name: File Search
+    description: Search for files and content
+    version: 1.0.0
+    source: opencode
+    dependencies: []
+    checksum: ""
+    owner: holdfast-team
+    purpose: development
