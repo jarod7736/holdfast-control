@@ -1,8 +1,9 @@
-import pytest
-import tempfile
 import os
+import tempfile
 from pathlib import Path
+
 from holdfastctl.validate import validate_manifest_file
+
 
 def test_valid_manifest_passes():
     """Test that a valid manifest passes validation"""
@@ -217,7 +218,7 @@ credentials:
 
 def test_no_secret_in_error_message():
     """Test that secret values don't appear in error messages"""
-    manifest_with_secret_in_field = """
+    _ = """
 device:
   id: test-device
   profile: linux-wsl
@@ -264,12 +265,10 @@ credentials:
 def test_secret_patterns_detection():
     """Test that various secret patterns are detected"""
     # Test that various secret patterns are properly detected
-    pass
 
 def test_op_url_outside_reference_rejected():
     """Test that op:// URLs outside reference field are rejected"""
     # This should be handled by schema validation since reference is the only field allowed to have op://
-    pass
 
 def test_extra_field_rejected():
     """Test that extra fields are rejected due to strict schemas"""
@@ -304,15 +303,12 @@ credentials:
 def test_catalog_command_validation():
     """Test catalog command validation with allowed commands"""
     # This test would apply to catalog files
-    pass
 
 def test_catalog_path_validation():
     """Test catalog path validation"""
     # This test would apply to catalog files
-    pass
 
 def test_catalog_validation():
     """Test catalog file validation"""
     # This would test catalog validation specifically
-    pass
 

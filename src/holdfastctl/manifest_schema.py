@@ -1,8 +1,8 @@
 import os
 import re
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
-import pathlib
 
 
 class CredentialRef(BaseModel):
@@ -19,7 +19,7 @@ class ProviderEntry(BaseModel):
     id: str
     type: str
     base_url: str
-    credentials: Optional[list[CredentialRef]] = None
+    credentials: list[CredentialRef] | None = None
 
 
 class McpServerEntry(BaseModel):
@@ -27,7 +27,7 @@ class McpServerEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     url: str
-    credentials: Optional[list[CredentialRef]] = None
+    credentials: list[CredentialRef] | None = None
 
 
 class SkillEntry(BaseModel):
@@ -44,10 +44,18 @@ class SkillEntry(BaseModel):
     purpose: str
 
 
+class DeviceInfo(BaseModel):
+    """Device identity block; unknown keys are rejected"""
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    profile: str
+    display_name: str | None = None
+
+
 class DeviceManifest(BaseModel):
     """Device manifest model"""
     model_config = ConfigDict(extra="forbid")
-    device: dict[str, Any]
+    device: DeviceInfo
     capabilities: dict[str, Any]
     credentials: list[CredentialRef]
 
@@ -110,12 +118,12 @@ def validate_path_safety(path: str) -> None:
         home_path = os.path.expanduser('~')
         if not expanded_path.startswith(home_path):
             raise ValueError(f"Path escape detected: {path}")
-    except Exception:
+    except (OSError, RuntimeError):
         # Fail closed - if resolution fails, reject
         raise ValueError(f"Path resolution failed, rejecting: {path}")
 
 
-def validate_no_arbitrary_commands(data: Dict[str, Any], is_catalog: bool = False) -> None:
+def validate_no_arbitrary_commands(data: dict[str, Any], is_catalog: bool = False) -> None:
     """Validate that no arbitrary shell commands are present"""
     # Check for command-related fields at device/profile level
     command_fields = ['command', 'exec', 'run', 'shell']
@@ -130,8 +138,7 @@ def validate_no_arbitrary_commands(data: Dict[str, Any], is_catalog: bool = Fals
                 if value in allowed_commands:
                     # For now just allow it, but we'll validate argument pinning in catalog files
                     pass
-            elif isinstance(value, list):
-                if value and value[0] in allowed_commands:
+            elif isinstance(value, list) and value and value[0] in allowed_commands:
                     # For command lists, validate arguments if they're package specs
                     pass
         else:

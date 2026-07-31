@@ -1,25 +1,27 @@
-import os
-import yaml
-import typer
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Annotated, Any
+
+import typer
+import yaml
+from pydantic import ValidationError
+
 from holdfastctl.manifest_schema import (
-    DeviceManifest, 
-    ProfileManifest, 
     CredentialRef,
-    validate_secret_literals,
-    validate_path_safety,
-    validate_no_arbitrary_commands,
+    DeviceManifest,
+    McpServerEntry,
+    ProfileManifest,
+    ProviderEntry,
+    SkillEntry,
     validate_duplicate_ids,
     validate_env_var_name,
-    ProviderEntry,
-    McpServerEntry,
-    SkillEntry
+    validate_no_arbitrary_commands,
+    validate_path_safety,
+    validate_secret_literals,
 )
 
 app = typer.Typer()
 
-def validate_manifest_file(file_path: Path) -> List[str]:
+def validate_manifest_file(file_path: Path) -> list[str]:
     """Validate a single manifest file"""
     errors = []
     
@@ -36,41 +38,28 @@ def validate_manifest_file(file_path: Path) -> List[str]:
             # Validate the whole data structure for command fields first
             try:
                 validate_no_arbitrary_commands(data, is_catalog=False)
-            except Exception as e:
-                errors.append(f"Command validation failed: {str(e)}")
+            except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                errors.append(f"Command validation failed: {e!s}")
                 return errors
                 
             # Then validate the structure as DeviceManifest or ProfileManifest
             try:
-                # Try DeviceManifest first
-                manifest = DeviceManifest(**data)
-        # Ensure we can check for profile fields
-        if "profile" in data:
-            # Try ProfileManifest
-            try:
-                profile_manifest = ProfileManifest(**data)
-                # If this works, use it instead
-                manifest = profile_manifest
-            except Exception:
-                # If ProfileManifest fails, keep DeviceManifest
-                pass
-                # Validate credentials
-                validate_duplicate_ids(manifest.credentials)
-                for cred in manifest.credentials:
-                    validate_env_var_name(cred.inject_as)
-                    # Check for secret patterns in non-reference fields
-                    # We already validated that there are no secrets in reference field at the schema level
-            except Exception as e:
-                try:
-                    # If DeviceManifest fails, try ProfileManifest
+                manifest: DeviceManifest | ProfileManifest
+                if "profile" in data:
                     manifest = ProfileManifest(**data)
-                    # Validate credentials
-                    validate_duplicate_ids(manifest.credentials)
-                    for cred in manifest.credentials:
-                        validate_env_var_name(cred.inject_as)
-                except Exception as e2:
-                    errors.append(f"Manifest validation failed for both DeviceManifest and ProfileManifest: {str(e2)}")
-                    return errors
+                else:
+                    manifest = DeviceManifest(**data)
+            except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                errors.append(f"Manifest structure validation failed: {e!s}")
+                return errors
+            # Validate credentials
+            validate_duplicate_ids(manifest.credentials)
+            for cred in manifest.credentials:
+                validate_env_var_name(cred.inject_as)
+                if not cred.reference.startswith('op://'):
+                    errors.append(
+                        f"Literal secret pattern in credentials[{cred.id}].reference — reference must be an op:// URI, not a literal value"
+                    )
             
             # Validate paths in device manifest
             # Validate device.id, capabilities paths if any, etc.
@@ -87,20 +76,20 @@ def validate_manifest_file(file_path: Path) -> List[str]:
                             for path in managed_paths.values():
                                 if isinstance(path, str):
                                     validate_path_safety(path)
-            except Exception as e:
-                errors.append(f"Path validation failed: {str(e)}")
+            except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                errors.append(f"Path validation failed: {e!s}")
                 
         # Validate the data structures to ensure no literal secrets in non-reference fields
         # We'll do a more thorough scan of all string values
         validate_all_strings(data, errors)
         
-    except Exception as e:
-        errors.append(f"Failed to read manifest: {str(e)}")
+    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+        errors.append(f"Failed to read manifest: {e!s}")
         return errors
         
     return errors
 
-def validate_catalog_file(file_path: Path) -> List[str]:
+def validate_catalog_file(file_path: Path) -> list[str]:
     """Validate a catalog file"""
     errors = []
     
@@ -122,27 +111,27 @@ def validate_catalog_file(file_path: Path) -> List[str]:
                 for provider in data["providers"]:
                     try:
                         # Validate provider entry
-                        provider_entry = ProviderEntry(**provider)
+                        ProviderEntry(**provider)
                         # Validate secret literals in provider entry
                         validate_all_strings(provider, errors, "provider")
                         # Validate paths in provider entry
                         if 'source' in provider and isinstance(provider['source'], str):
                             validate_path_safety(provider['source'])
-                    except Exception as e:
-                        errors.append(f"Provider validation failed: {str(e)}")
+                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                        errors.append(f"Provider validation failed: {e!s}")
                         
             if "mcp-servers" in data:
                 for server in data["mcp-servers"]:
                     try:
                         # Validate mcp server entry
-                        server_entry = McpServerEntry(**server)
+                        McpServerEntry(**server)
                         # Validate secret literals in server entry
                         validate_all_strings(server, errors, "mcp-server")
                         # Validate paths in server entry
                         if 'source' in server and isinstance(server['source'], str):
                             validate_path_safety(server['source'])
-                    except Exception as e:
-                        errors.append(f"MCP server validation failed: {str(e)}")
+                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                        errors.append(f"MCP server validation failed: {e!s}")
                         
         elif filename == "mcp-servers.yaml":
             # Validate McpServerEntry structures
@@ -150,14 +139,14 @@ def validate_catalog_file(file_path: Path) -> List[str]:
                 for server in data["mcp-servers"]:
                     try:
                         # Validate mcp server entry
-                        server_entry = McpServerEntry(**server)
+                        McpServerEntry(**server)
                         # Validate secret literals in server entry
                         validate_all_strings(server, errors, "mcp-server")
                         # Validate paths in server entry
                         if 'source' in server and isinstance(server['source'], str):
                             validate_path_safety(server['source'])
-                    except Exception as e:
-                        errors.append(f"MCP server validation failed: {str(e)}")
+                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                        errors.append(f"MCP server validation failed: {e!s}")
                         
         elif filename == "skills.yaml":
             # Validate SkillEntry structures
@@ -165,14 +154,14 @@ def validate_catalog_file(file_path: Path) -> List[str]:
                 for skill in data["skills"]:
                     try:
                         # Validate skill entry
-                        skill_entry = SkillEntry(**skill)
+                        SkillEntry(**skill)
                         # Validate secret literals in skill entry
                         validate_all_strings(skill, errors, "skill")
                         # Validate paths in skill entry (source field)
                         if 'source' in skill and isinstance(skill['source'], str):
                             validate_path_safety(skill['source'])
-                    except Exception as e:
-                        errors.append(f"Skill validation failed: {str(e)}")
+                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                        errors.append(f"Skill validation failed: {e!s}")
                         
         elif filename == "credentials.yaml":
             # Validate credentials entries
@@ -180,31 +169,31 @@ def validate_catalog_file(file_path: Path) -> List[str]:
                 for cred in data["credentials"]:
                     try:
                         # Validate credential entry
-                        credential_entry = CredentialRef(**cred)
+                        CredentialRef(**cred)
                         # Validate secret literals in credential entry
                         validate_all_strings(cred, errors, "credential")
-                    except Exception as e:
-                        errors.append(f"Credentials validation failed: {str(e)}")
+                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                        errors.append(f"Credentials validation failed: {e!s}")
                         
         # Validate command fields in catalogs (allow npx/uvx with pinning)
         try:
             validate_no_arbitrary_commands(data, is_catalog=True)
-        except Exception as e:
-            errors.append(f"Catalog command validation failed: {str(e)}")
+        except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+            errors.append(f"Catalog command validation failed: {e!s}")
             
         # Validate paths in catalog files where appropriate
         try:
             validate_catalog_paths(data, errors)
-        except Exception as e:
-            errors.append(f"Catalog path validation failed: {str(e)}")
+        except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+            errors.append(f"Catalog path validation failed: {e!s}")
             
-    except Exception as e:
-        errors.append(f"Failed to read catalog: {str(e)}")
+    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+        errors.append(f"Failed to read catalog: {e!s}")
         return errors
         
     return errors
 
-def validate_catalog_paths(data: Any, errors: List[str]) -> None:
+def validate_catalog_paths(data: Any, errors: list[str]) -> None:
     """Validate paths in catalog files"""
     if isinstance(data, dict):
         for key, value in data.items():
@@ -214,8 +203,8 @@ def validate_catalog_paths(data: Any, errors: List[str]) -> None:
                     # Validate path safety for path fields
                     try:
                         validate_path_safety(value)
-                    except Exception as e:
-                        errors.append(f"Path validation failed for {key}: {str(e)}")
+                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+                        errors.append(f"Path validation failed for {key}: {e!s}")
             elif isinstance(value, dict):
                 validate_catalog_paths(value, errors)
             elif isinstance(value, list):
@@ -227,7 +216,7 @@ def validate_catalog_paths(data: Any, errors: List[str]) -> None:
             if isinstance(item, dict):
                 validate_catalog_paths(item, errors)
 
-def validate_all_strings(data: Any, errors: List[str], parent_key: str = "") -> None:
+def validate_all_strings(data: Any, errors: list[str], parent_key: str = "") -> None:
     """Recursively validate all string values in the data structure"""
     if isinstance(data, dict):
         for key, value in data.items():
@@ -256,8 +245,8 @@ def is_catalog_file(path: Path) -> bool:
 
 @app.command()
 def validate(
-    path: Optional[Path] = typer.Argument(None, help="Path to manifest file or directory to validate")
-):
+    path: Annotated[Path | None, typer.Argument(help="Path to manifest file or directory to validate")] = None,
+) -> None:
     """Validate manifest files for security issues"""
     if not path:
         path = Path("manifests")
@@ -271,8 +260,7 @@ def validate(
     if path.is_file() and path.suffix == '.yaml':
         yaml_files.append(path)
     elif path.is_dir():
-        for file_path in path.rglob("*.yaml"):
-            yaml_files.append(file_path)
+        yaml_files = list(path.rglob("*.yaml"))
     else:
         typer.echo(f"Error: {path} is not a YAML file or directory")
         raise typer.Exit(code=1)

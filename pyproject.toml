@@ -38,7 +38,6 @@ target-version = "py312"
 [tool.mypy]
 python-version = "3.12"
 strict = true
-line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
