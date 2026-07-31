@@ -28,6 +28,9 @@ optional-dependencies.dev = [
     "httpx>=0.25.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
