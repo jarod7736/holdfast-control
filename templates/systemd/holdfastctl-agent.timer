@@ -1,0 +1,11 @@
+[Unit]
+Description=Holdfast Control agent timer - periodic inspect and report
+
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=holdfastctl-agent.service
+
+[Install]
+WantedBy=timers.target

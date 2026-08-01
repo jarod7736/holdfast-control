@@ -1,0 +1,163 @@
+"""
+Tests for the reporting module.
+"""
+
+from unittest.mock import patch
+
+import pytest
+
+from holdfastctl.reporting import ReportingError, ReportingService, StatusReporter
+
+
+class TestStatusReporter:
+    """Test cases for StatusReporter."""
+
+    def test_init(self):
+        """Test StatusReporter initialization."""
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        assert reporter.control_plane_url == "http://test-control-plane"
+        assert reporter.device_id == "test-device-123"
+
+    @patch('requests.post')
+    def test_report_status_success(self, mock_post):
+        """Test successful status reporting."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"status": "ok"}
+        
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        result = reporter.report_status({"status": "healthy"})
+        assert result is True
+
+    @patch('requests.post')
+    def test_report_status_failure(self, mock_post):
+        """Test status reporting failure."""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {"error": "server error"}
+        
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        with pytest.raises(ReportingError):
+            reporter.report_status({"status": "healthy"})
+
+    @patch('requests.post')
+    def test_report_configuration_change_success(self, mock_post):
+        """Test successful configuration change reporting."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"status": "ok"}
+        
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        result = reporter.report_configuration_change(
+            {"old": "config"}, 
+            {"new": "config"}
+        )
+        assert result is True
+
+    @patch('requests.post')
+    def test_report_configuration_change_failure(self, mock_post):
+        """Test configuration change reporting failure."""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {"error": "server error"}
+        
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        with pytest.raises(ReportingError):
+            reporter.report_configuration_change(
+                {"old": "config"}, 
+                {"new": "config"}
+            )
+
+    @patch('requests.post')
+    def test_report_error_success(self, mock_post):
+        """Test successful error reporting."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"status": "ok"}
+        
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        result = reporter.report_error("Test error message")
+        assert result is True
+
+    @patch('requests.post')
+    def test_report_error_failure(self, mock_post):
+        """Test error reporting failure."""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {"error": "server error"}
+        
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        with pytest.raises(ReportingError):
+            reporter.report_error("Test error message")
+
+    def test_get_device_status(self):
+        """Test getting device status."""
+        reporter = StatusReporter("http://test-control-plane", "test-device-123")
+        status = reporter.get_device_status()
+        
+        assert status["device_id"] == "test-device-123"
+        assert "timestamp" in status
+        assert status["status"] == "healthy"
+
+
+class TestReportingService:
+    """Test cases for ReportingService."""
+
+    def test_init(self):
+        """Test ReportingService initialization."""
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        assert service.reporter is not None
+
+    @patch('requests.post')
+    def test_report_health_success(self, mock_post):
+        """Test successful health reporting."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"status": "ok"}
+        
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        result = service.report_health()
+        assert result is True
+
+    @patch('requests.post')
+    def test_report_health_failure(self, mock_post):
+        """Test health reporting failure."""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {"error": "server error"}
+        
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        result = service.report_health()
+        assert result is False
+
+    @patch('requests.post')
+    def test_report_change_success(self, mock_post):
+        """Test successful change reporting."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"status": "ok"}
+        
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        result = service.report_change({"old": "config"}, {"new": "config"})
+        assert result is True
+
+    @patch('requests.post')
+    def test_report_change_failure(self, mock_post):
+        """Test change reporting failure."""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {"error": "server error"}
+        
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        result = service.report_change({"old": "config"}, {"new": "config"})
+        assert result is False
+
+    @patch('requests.post')
+    def test_report_error_success(self, mock_post):
+        """Test successful error reporting."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"status": "ok"}
+        
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        result = service.report_error("Test error message")
+        assert result is True
+
+    @patch('requests.post')
+    def test_report_error_failure(self, mock_post):
+        """Test error reporting failure."""
+        mock_post.return_value.status_code = 500
+        mock_post.return_value.json.return_value = {"error": "server error"}
+        
+        service = ReportingService("http://test-control-plane", "test-device-123")
+        result = service.report_error("Test error message")
+        assert result is False

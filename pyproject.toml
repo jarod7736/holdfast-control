@@ -20,6 +20,7 @@ dependencies = [
     "typer>=0.9.0",
     "pyyaml>=6.0.0",
     "httpx>=0.25.0",
+    "requests>=2.31.0",
 ]
 optional-dependencies.dev = [
     "pytest>=7.0.0",
@@ -27,6 +28,9 @@ optional-dependencies.dev = [
     "mypy>=1.0.0",
     "httpx>=0.25.0",
 ]
+
+[project.scripts]
+holdfastctl = "holdfastctl.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -36,8 +40,10 @@ line-length = 100
 target-version = "py312"
 
 [tool.mypy]
-python-version = "3.12"
+python_version = "3.12"
+mypy_path = "src"
 strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

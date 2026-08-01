@@ -1,0 +1,11 @@
+[Unit]
+Description=Holdfast Control agent - inspect and report device status
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/holdfastctl report
+# User-scoped agent: runs as the invoking user via systemctl --user.
+# It only reads local state and posts a report; no elevated privileges.
+Nice=10

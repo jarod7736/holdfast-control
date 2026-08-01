@@ -24,7 +24,7 @@ jobs:
         ruff check
     - name: Run mypy
       run: |
-        mypy holdfastctl server
+        mypy -p holdfastctl -p server
     - name: Run pytest
       run: |
         pytest
