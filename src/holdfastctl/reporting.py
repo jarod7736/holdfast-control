@@ -4,6 +4,8 @@ This module provides capabilities for reporting device status and configuration 
 """
 
 import datetime
+import os
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -16,15 +18,61 @@ class ReportingError(Exception):
 class StatusReporter:
     """Report device status and configuration changes to the control plane."""
 
-    def __init__(self, control_plane_url: str, device_id: str):
+    def __init__(self, control_plane_url: str, device_id: str, token_path: str | None = None):
         """Initialize the status reporter.
         
         Args:
             control_plane_url: URL of the control plane
             device_id: Unique identifier for this device
+            token_path: Path where the report token is stored (mode 0600); created on first enrollment
         """
         self.control_plane_url = control_plane_url
         self.device_id = device_id
+        self.token_path = token_path
+
+    def enroll(self, expires_in_seconds: int = 600) -> str:
+        """Enroll the device with the control plane and return a report-only token.
+
+        Raises:
+            ReportingError: If enrollment fails
+        """
+        code_response = requests.post(
+            f"{self.control_plane_url}/api/v1/enrollment-codes",
+            json={"device_id": self.device_id, "expires_in_seconds": expires_in_seconds},
+        )
+        if code_response.status_code != 200:
+            raise ReportingError(f"Enrollment code request failed: {code_response.text}")
+        code = code_response.json()["code"]
+        enroll_response = requests.post(
+            f"{self.control_plane_url}/api/v1/enroll",
+            json={"code": code, "device_id": self.device_id},
+        )
+        if enroll_response.status_code != 200:
+            raise ReportingError(f"Enrollment failed: {enroll_response.text}")
+        token: Any = enroll_response.json().get("report_token")
+        if not isinstance(token, str):
+            raise ReportingError("Enrollment response missing report_token")
+        return token
+
+    def _load_or_create_token(self) -> str:
+        """Return the stored report token, enrolling and persisting it (mode 0600) if absent.
+
+        Raises:
+            ReportingError: If token storage fails
+        """
+        if self.token_path is not None:
+            token_path = Path(self.token_path)
+            if token_path.is_file():
+                stored = token_path.read_text().strip()
+                if stored:
+                    return stored
+        raw_token = self.enroll()
+        if self.token_path is not None:
+            token_path = Path(self.token_path)
+            token_path.parent.mkdir(parents=True, exist_ok=True)
+            token_path.write_text(raw_token)
+            os.chmod(token_path, 0o600)
+        return raw_token
 
     def report_status(self, status_data: dict[str, Any]) -> bool:
         """
@@ -40,14 +88,19 @@ class StatusReporter:
             ReportingError: If reporting fails
         """
         try:
-            url = f"{self.control_plane_url}/devices/{self.device_id}/status"
-            response = requests.post(url, json=status_data)
-            
+            token = self._load_or_create_token()
+            url = f"{self.control_plane_url}/api/v1/devices/{self.device_id}/reports"
+            response = requests.post(
+                url,
+                json={"report_data": status_data},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
             if response.status_code != 200:
                 raise ReportingError(f"Failed to report status: {response.text}")
-                
+
             return True
-            
+
         except (ReportingError, requests.RequestException, ValueError) as e:
             raise ReportingError(f"Failed to report status: {e!s}")
 

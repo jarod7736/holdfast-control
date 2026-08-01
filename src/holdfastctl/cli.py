@@ -1,6 +1,7 @@
 """Command-line interface for holdfastctl."""
 
 import json
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,22 @@ app = typer.Typer(help="Holdfast Control - configuration management for home lab
 @app.callback()
 def main(ctx: typer.Context) -> None:
     """Holdfast Control - configuration management for home lab devices."""
+
+
+def _resolve_device_id(config: dict[str, object]) -> str:
+    """Resolve the device id: explicit config, then hostname (hosts/DNS), then ask the user."""
+    explicit = config.get("device_id")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
+    hostname = socket.gethostname().strip() or socket.getfqdn().strip()
+    if hostname:
+        return hostname
+
+    if sys.stdin.isatty():
+        value = typer.prompt("Could not detect a device name. Device id", default="local")
+        return value.strip() or "local"
+    return "local"
 
 
 @app.command()
@@ -232,7 +249,7 @@ def report(
         typer.echo(f"Error: failed to read agent config: {e}", err=True)
         raise typer.Exit(code=1)
 
-    device_id = config.get("device_id", "local")
+    device_id = _resolve_device_id(config)
     control_plane_url = config.get("control_plane_url", "http://127.0.0.1:8000")
 
     device_info = DeviceInfo(id=device_id, profile=config.get("profile", "linux-wsl"), display_name=device_id)
@@ -240,7 +257,8 @@ def report(
     status = inspector.inspect_system()
     status["device_id"] = device_id
 
-    reporter = StatusReporter(control_plane_url, device_id)
+    token_path = config.get("token_path") or str(config_path.parent / "report.token")
+    reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
     try:
         ok = reporter.report_status(status)
     except ReportingError as e:

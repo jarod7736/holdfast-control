@@ -1,5 +1,5 @@
 device:
-  id: current-wsl
+  id: jarod7736-laptop
   profile: linux-wsl
 capabilities:
   opencode: {required: true, config_profile: personal-development}

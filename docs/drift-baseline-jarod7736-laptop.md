@@ -1,4 +1,4 @@
-# Drift Baseline — current-wsl (2026-07-30)
+# Drift Baseline — jarod7736-laptop (2026-07-30)
 
 Source: read-only inventory of the pilot workstation (this machine).
 

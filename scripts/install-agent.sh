@@ -35,16 +35,23 @@ if [ ! -x "${AGENT_BIN}" ]; then
 fi
 
 # 2. Write the agent config (never overwrite an existing config).
+#    Device identity: prefer the real hostname (hosts/DNS), else ask the user.
+DEVICE_ID="${HOSTNAME:-$(hostname 2>/dev/null)}"
+if [ -z "${DEVICE_ID}" ]; then
+    printf 'Could not detect a device name. Device id (e.g. %s): ' "$(hostname 2>/dev/null || echo laptop)"
+    read -r DEVICE_ID
+fi
+
 mkdir -p "${CONFIG_DIR}"
 if [ -f "${CONFIG_FILE}" ]; then
     echo "[config] ${CONFIG_FILE} exists — leaving unchanged"
 else
-    cat > "${CONFIG_FILE}" <<'EOF'
-device_id: current-wsl
+    cat > "${CONFIG_FILE}" <<EOF
+device_id: ${DEVICE_ID}
 control_plane_url: http://127.0.0.1:8000
 schedule: 15m
 EOF
-    echo "[config] wrote ${CONFIG_FILE}"
+    echo "[config] wrote ${CONFIG_FILE} (device_id: ${DEVICE_ID})"
 fi
 
 # 3. Install the systemd user units and enable the timer.
