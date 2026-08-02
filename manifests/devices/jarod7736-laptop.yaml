@@ -3,9 +3,9 @@ device:
   profile: linux-wsl
 capabilities:
   opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud, amd-halo]
+  providers: [opencode-cloud, amd-halo, openrouter]
   mcp_servers: [github, halo-commander, nas-files]
 credentials:
-  - id: litellm-current-wsl
-    reference: op://holdfast-lan/litellm-current-wsl/credential
+  - id: litellm-jarod-laptop
+    reference: op://holdfast-lan/opencode-litellm-jarod-laptop-api-key/credential
     inject_as: LITELLM_API_KEY

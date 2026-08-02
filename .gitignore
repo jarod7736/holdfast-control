@@ -45,6 +45,7 @@ build/
 
 # Slim
 .slim/
+.slim/deepwork/
 
 # IDE
 .idea/

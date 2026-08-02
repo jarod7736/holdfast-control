@@ -272,5 +272,59 @@ def report(
     typer.echo(f"Reported {device_id} to {control_plane_url}")
 
 
+@app.command()
+def reconcile(
+    manifest_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/devices/jarod7736-laptop.yaml"),
+        "--manifest",
+        "-m",
+        help="Device manifest YAML",
+    ),
+    catalog_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/catalogs/credentials.yaml"),
+        "--catalog",
+        help="Credential catalog YAML",
+    ),
+    config_dir: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "opencode",  # noqa: B008 - idiomatic typer default
+        "--config-dir",
+        help="OpenCode config directory (reads opencode.json)",
+    ),
+) -> None:
+    """Compare the device manifest against the real opencode config and print a reconcile plan."""
+    from holdfastctl.reconcile import (
+        generate_opencode_plan,
+        load_current_opencode_state,
+        load_desired_state,
+    )
+
+    if not manifest_path.is_file():
+        typer.echo(f"Error: manifest not found at {manifest_path}", err=True)
+        raise typer.Exit(code=1)
+    if not catalog_path.is_file():
+        typer.echo(f"Error: catalog not found at {catalog_path}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        desired = load_desired_state(manifest_path, catalog_path)
+        current = load_current_opencode_state(config_dir)
+        plans = generate_opencode_plan(current, desired)
+    except Exception as e:  # noqa: BLE001 - surface any reconcile failure cleanly
+        typer.echo(f"Error: reconcile failed: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Device: {desired['device_id']} (profile: {desired['profile']})")
+    typer.echo(f"Config: {current['config_file']}")
+    if not current["config_file"].is_file():
+        typer.echo("  (no opencode.json found - all declared capabilities are missing)")
+
+    if plans:
+        typer.echo(f"\nReconcile plan ({len(plans)} action(s)):")
+        for plan in plans:
+            typer.echo(f"  [{plan.action}] {plan.target}: {plan.description}")
+    else:
+        typer.echo("\nNo drift - device matches manifest.")
+
+
 if __name__ == "__main__":
     app()
