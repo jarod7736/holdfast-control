@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -222,6 +223,24 @@ def run(
     sys.exit(result.returncode)
 
 
+def _echo_pending_gateway_key(reporter: Any, device_id: str) -> None:
+    """Print the one-time gateway key banner if enrollment minted one.
+
+    Called on every exit path once a key may have been minted: it is never
+    persisted, so a report failure after enrollment must not lose it.
+    """
+    if reporter.pending_gateway_key:
+        typer.echo("")
+        typer.echo("Gateway virtual key minted for this device (shown ONCE, never stored):")
+        typer.echo(f"  alias: {reporter.pending_gateway_key_alias}")
+        typer.echo(f"  key:   {reporter.pending_gateway_key}")
+        typer.echo("Store it in 1Password now, then export it in your shell profile, e.g.:")
+        typer.echo(
+            f"  op item create --vault holdfast-lan --category 'API Credential' "
+            f"--title 'litellm-{device_id}' credential='<paste key>'"
+        )
+
+
 @app.command()
 def report(
     config_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
@@ -268,23 +287,16 @@ def report(
         ok = reporter.report_status(status, enrollment_code=enrollment_code)
     except ReportingError as e:
         typer.echo(f"Error: reporting to {control_plane_url} failed: {e}", err=True)
+        _echo_pending_gateway_key(reporter, device_id)
         raise typer.Exit(code=1)
 
     if not ok:
         typer.echo(f"Error: control plane at {control_plane_url} rejected the report", err=True)
+        _echo_pending_gateway_key(reporter, device_id)
         raise typer.Exit(code=1)
 
     typer.echo(f"Reported {device_id} to {control_plane_url}")
-    if reporter.pending_gateway_key:
-        typer.echo("")
-        typer.echo("Gateway virtual key minted for this device (shown ONCE, never stored):")
-        typer.echo(f"  alias: {reporter.pending_gateway_key_alias}")
-        typer.echo(f"  key:   {reporter.pending_gateway_key}")
-        typer.echo("Store it in 1Password now, then export it in your shell profile, e.g.:")
-        typer.echo(
-            f"  op item create --vault holdfast-lan --category 'API Credential' "
-            f"--title 'litellm-{device_id}' credential='<paste key>'"
-        )
+    _echo_pending_gateway_key(reporter, device_id)
 
 
 @app.command("enroll-code")

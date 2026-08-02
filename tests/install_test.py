@@ -91,3 +91,61 @@ class TestReportCommand:
         assert result.exit_code == 1
         assert "failed" in result.output
         assert "Traceback" not in result.output
+
+    def test_report_error_still_prints_minted_key(self, tmp_path):
+        """A key minted during enrollment must not be lost if the report POST then fails."""
+        cfg = self._write_config(tmp_path)
+        from holdfastctl.reporting import ReportingError
+
+        def fake_report_status(self, status_data, enrollment_code=None):
+            self.pending_gateway_key = "sk-minted-key"
+            self.pending_gateway_key_alias = "holdfast-current-wsl-aa11"
+            raise ReportingError("report POST failed")
+
+        with patch("holdfastctl.reporting.StatusReporter.report_status", new=fake_report_status):
+            result = runner.invoke(app, ["report", "--config", str(cfg)])
+        assert result.exit_code == 1
+        assert "sk-minted-key" in result.output
+        assert "holdfast-current-wsl-aa11" in result.output
+
+    @patch("requests.post")
+    def test_minted_key_survives_failed_report_post(self, mock_post, tmp_path):
+        """End-to-end: enroll mints a key over real report_status/requests.post, the
+        report POST 500s, and the key still reaches the operator instead of being lost."""
+        cfg = self._write_config(tmp_path)
+
+        def responses(url, **kwargs):
+            reply = type("R", (), {})()
+            if url.endswith("/api/v1/enroll"):
+                reply.status_code = 200
+                reply.json = lambda: {
+                    "report_token": "fresh-token",
+                    "gateway_key": "sk-minted-key",
+                    "gateway_key_alias": "holdfast-current-wsl-aa11",
+                }
+            else:
+                reply.status_code = 500
+                reply.text = "report rejected"
+                reply.json = lambda: {"error": "report rejected"}
+            return reply
+
+        mock_post.side_effect = responses
+        result = runner.invoke(app, ["report", "--config", str(cfg), "--enrollment-code", "code-123"])
+        assert result.exit_code == 1
+        assert "sk-minted-key" in result.output
+        assert "holdfast-current-wsl-aa11" in result.output
+
+    def test_report_rejected_still_prints_minted_key(self, tmp_path):
+        """A key minted during enrollment must not be lost if the control plane rejects the report."""
+        cfg = self._write_config(tmp_path)
+
+        def fake_report_status(self, status_data, enrollment_code=None):
+            self.pending_gateway_key = "sk-minted-key"
+            self.pending_gateway_key_alias = "holdfast-current-wsl-aa11"
+            return False
+
+        with patch("holdfastctl.reporting.StatusReporter.report_status", new=fake_report_status):
+            result = runner.invoke(app, ["report", "--config", str(cfg)])
+        assert result.exit_code == 1
+        assert "sk-minted-key" in result.output
+        assert "holdfast-current-wsl-aa11" in result.output
