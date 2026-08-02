@@ -54,6 +54,22 @@ Key minting requires the control plane to run with `HOLDFAST_LITELLM_URL` and `H
 (a key-management-scoped credential from the `holdfast-automation` vault). Without them, codes minted with
 gateway scope fail enrollment with 503; codes without scope enroll normally.
 
+## Deploy the control plane
+
+The control plane is packaged as a container and runs on the Synology in
+Container Manager, on the same Docker network as LiteLLM so the key-minting
+credential never crosses the LAN. See
+[docs/deployment-synology.md](docs/deployment-synology.md) for the full
+procedure.
+
+    ./scripts/snapshot-control-plane-db.sh   # preserve enrolled devices' tokens
+    cp .env.example .env                     # fill in, chmod 600
+    docker compose up -d --build             # on the Synology
+
+Configuration is entirely environment-driven: `HOLDFAST_DB_PATH`,
+`HOLDFAST_HOST`, `HOLDFAST_PORT`, `HOLDFAST_ADMIN_TOKEN`,
+`HOLDFAST_LITELLM_URL`, `HOLDFAST_LITELLM_ADMIN_TOKEN`.
+
 ## Development
 
 ```sh
