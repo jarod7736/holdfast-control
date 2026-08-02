@@ -3,11 +3,21 @@
 # Install the user-scoped Holdfast Control agent and its systemd user timer.
 # Works on WSL and native Linux. No sudo is required.
 #
-# Usage: scripts/install-agent.sh [REPO_ROOT]
+# Usage: scripts/install-agent.sh [REPO_ROOT] [--control-plane URL] [--enrollment-code CODE]
 #   REPO_ROOT defaults to the repository root (parent of this script).
 set -euo pipefail
 
-REPO_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONTROL_PLANE_URL="http://127.0.0.1:8000"
+ENROLLMENT_CODE=""
+POSITIONAL_REPO=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --control-plane) CONTROL_PLANE_URL="$2"; shift 2 ;;
+        --enrollment-code) ENROLLMENT_CODE="$2"; shift 2 ;;
+        *) POSITIONAL_REPO="$1"; shift ;;
+    esac
+done
+REPO_ROOT="${POSITIONAL_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 AGENT_BIN="${HOME}/.local/bin/holdfastctl"
 CONFIG_DIR="${HOME}/.config/holdfastctl"
 CONFIG_FILE="${CONFIG_DIR}/config.yaml"
@@ -48,7 +58,7 @@ if [ -f "${CONFIG_FILE}" ]; then
 else
     cat > "${CONFIG_FILE}" <<EOF
 device_id: ${DEVICE_ID}
-control_plane_url: http://127.0.0.1:8000
+control_plane_url: ${CONTROL_PLANE_URL}
 schedule: 15m
 EOF
     echo "[config] wrote ${CONFIG_FILE} (device_id: ${DEVICE_ID})"
@@ -60,6 +70,13 @@ cp "${REPO_ROOT}/templates/systemd/holdfastctl-agent.service" "${SYSTEMD_DIR}/"
 cp "${REPO_ROOT}/templates/systemd/holdfastctl-agent.timer" "${SYSTEMD_DIR}/"
 systemctl --user daemon-reload
 systemctl --user enable --now holdfastctl-agent.timer >/dev/null
+
+# 4. First report: enroll immediately when a code was provided.
+if [ -n "${ENROLLMENT_CODE}" ]; then
+    echo "[enroll] Running first report with enrollment code"
+    "${AGENT_BIN}" report --enrollment-code "${ENROLLMENT_CODE}" || \
+        echo "[enroll] WARNING: first report failed — run manually: ${AGENT_BIN} report --enrollment-code <code>" >&2
+fi
 
 echo
 echo "[ok] Holdfast Control agent installed"

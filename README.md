@@ -19,8 +19,8 @@ Configuration management for home lab devices: an agent-driven system that inven
 
 ## API
 
-- `POST /api/v1/enrollment-codes` — generate an enrollment code for a device (admin token required)
-- `POST /api/v1/enroll` — exchange an operator-provisioned code for a raw report token (public)
+- `POST /api/v1/enrollment-codes` — generate an enrollment code for a device, optionally declaring `gateway_models`/`gateway_mcp_servers` for its LiteLLM virtual key (admin token required)
+- `POST /api/v1/enroll` — exchange an operator-provisioned code for a raw report token; when the code declares gateway scope, the response also carries a one-time scoped LiteLLM virtual key (public)
 - `POST /api/v1/devices/{device_id}/reports` — device bearer-token authenticated report ingestion
 - `POST` / `GET /api/v1/devices/{device_id}/plans` — plan creation and listing (admin token required)
 - `POST /api/v1/devices/{device_id}/plans/{plan_id}/approve` — plan approval bound to exact `current_hash`/`desired_commit` (admin token required)
@@ -41,6 +41,18 @@ Start the control plane locally:
 ```sh
 .venv/bin/python -m server   # serves on http://127.0.0.1:8000
 ```
+
+## Onboard a new device
+
+1. Operator (any machine with the admin token):
+   `HOLDFAST_ADMIN_TOKEN=... holdfastctl enroll-code <device-id> --models or-cheap,or-coder --mcp github --control-plane http://<server>:8000`
+2. On the device:
+   `scripts/install-agent.sh --control-plane http://<server>:8000 --enrollment-code <code>`
+3. The first report prints the device's LiteLLM virtual key exactly once — store it in 1Password (`holdfast-lan`) and export it as `LITELLM_API_KEY` in the device's shell profile.
+
+Key minting requires the control plane to run with `HOLDFAST_LITELLM_URL` and `HOLDFAST_LITELLM_ADMIN_TOKEN`
+(a key-management-scoped credential from the `holdfast-automation` vault). Without them, codes minted with
+gateway scope fail enrollment with 503; codes without scope enroll normally.
 
 ## Development
 
