@@ -1,0 +1,17 @@
+.venv/
+.git/
+.github/
+.claude/
+.superpowers/
+__pycache__/
+*.pyc
+*.sqlite
+*.db
+*.db-snapshot
+tests/
+docs/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
