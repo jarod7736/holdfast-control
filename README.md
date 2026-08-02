@@ -66,9 +66,11 @@ procedure.
     cp .env.example .env                     # fill in, chmod 600
     docker compose up -d --build             # on the Synology
 
-Configuration is entirely environment-driven: `HOLDFAST_DB_PATH`,
-`HOLDFAST_HOST`, `HOLDFAST_PORT`, `HOLDFAST_ADMIN_TOKEN`,
-`HOLDFAST_LITELLM_URL`, `HOLDFAST_LITELLM_ADMIN_TOKEN`.
+Configuration is entirely environment-driven via `.env`: `HOLDFAST_ADMIN_TOKEN`,
+`HOLDFAST_LITELLM_URL`, `HOLDFAST_LITELLM_ADMIN_TOKEN`, `HOLDFAST_DATA_DIR`,
+`LITELLM_NETWORK_NAME`, `HOLDFAST_PORT_PUBLISHED`. (The image fixes
+`HOLDFAST_DB_PATH`, `HOLDFAST_HOST`, and `HOLDFAST_PORT` to match the container
+and compose setup.)
 
 ## Development
 

@@ -25,7 +25,9 @@ This writes `control-plane.db-snapshot` and prints the row counts it captured.
 
 Copy the repository to `/volume1/docker/holdfast-control` (File Station, or
 `scp -P 2222` if SSH is enabled). Then place the snapshot at
-`/volume1/docker/holdfast-control/data/control-plane.db`.
+`/volume1/docker/holdfast-control/data/control-plane.db` (using the
+`HOLDFAST_DATA_DIR` value you'll set in step 4; the default in `.env.example`
+is `/volume1/docker/holdfast-control/data`).
 
 The container runs as UID 10001, so make the data directory writable by it:
 
