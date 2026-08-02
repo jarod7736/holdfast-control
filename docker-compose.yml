@@ -1,0 +1,38 @@
+services:
+  holdfast-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: holdfast-control:local
+    container_name: holdfast-control
+    restart: unless-stopped
+    environment:
+      HOLDFAST_DB_PATH: /data/control-plane.db
+      HOLDFAST_HOST: 0.0.0.0
+      HOLDFAST_PORT: 8000
+      HOLDFAST_ADMIN_TOKEN: ${HOLDFAST_ADMIN_TOKEN:?set HOLDFAST_ADMIN_TOKEN in .env}
+      HOLDFAST_LITELLM_URL: ${HOLDFAST_LITELLM_URL:?set HOLDFAST_LITELLM_URL in .env}
+      HOLDFAST_LITELLM_ADMIN_TOKEN: ${HOLDFAST_LITELLM_ADMIN_TOKEN:?set HOLDFAST_LITELLM_ADMIN_TOKEN in .env}
+    volumes:
+      - ${HOLDFAST_DATA_DIR:?set HOLDFAST_DATA_DIR in .env}:/data
+    ports:
+      - "${HOLDFAST_PORT_PUBLISHED:-8000}:8000"
+    networks:
+      - litellm
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8000/openapi.json", timeout=5).status == 200 else 1)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  litellm:
+    external: true
+    name: ${LITELLM_NETWORK_NAME:?set LITELLM_NETWORK_NAME in .env}

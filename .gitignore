@@ -59,3 +59,6 @@ Thumbs.db
 
 # Local tooling
 .opencode/
+
+.env
+*.db-snapshot
