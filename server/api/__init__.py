@@ -66,8 +66,8 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
         )
 
     @router.post("/api/v1/enroll")
-    def enroll(request: EnrollmentRequest) -> dict[str, str]:
-        return enrollment.exchange_enrollment_code(database_path, request.code, request.device_id)
+    def enroll(request: EnrollmentRequest) -> dict[str, Any]:
+        return enrollment.exchange_enrollment_code(database_path, request.code, request.device_id, mint_key=mint_key)
 
     @router.post("/api/v1/devices/{device_id}/reports")
     def report(device_id: str, request: DeviceReportRequest, authorization: str | None = Header(default=None)) -> dict[str, str]:
