@@ -21,8 +21,8 @@
 
 ### ✅ Verification Gates:
 - `ruff check` - All checks passed
-- `mypy src/holdfastctl` - Success, no issues in 11 source files
-- `pytest tests/` - 99 passed, 1 skipped
+- `mypy -p holdfastctl -p server` - Success, no issues in 17 source files
+- `pytest tests/` - 113 passed, 1 skipped
 
 ## Notes
 - The `src/holdfastctl/server/` package was consolidated from submodules (`enrollment`, `storage`, `api`, `auth`, `adapters`) into a single `__init__.py` exposing `create_app()`. Standalone diagnostic scripts that imported the old submodule layout (`tests/comprehensive_verification.py`, `tests/final_server_verification.py`, `tests/final_verification.py`) are superseded by the collected pytest suite.
