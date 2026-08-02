@@ -30,22 +30,15 @@ class StatusReporter:
         self.device_id = device_id
         self.token_path = token_path
 
-    def enroll(self, expires_in_seconds: int = 600) -> str:
-        """Enroll the device with the control plane and return a report-only token.
+    def enroll(self, enrollment_code: str) -> str:
+        """Exchange an operator-provisioned one-time enrollment code for a report token.
 
         Raises:
             ReportingError: If enrollment fails
         """
-        code_response = requests.post(
-            f"{self.control_plane_url}/api/v1/enrollment-codes",
-            json={"device_id": self.device_id, "expires_in_seconds": expires_in_seconds},
-        )
-        if code_response.status_code != 200:
-            raise ReportingError(f"Enrollment code request failed: {code_response.text}")
-        code = code_response.json()["code"]
         enroll_response = requests.post(
             f"{self.control_plane_url}/api/v1/enroll",
-            json={"code": code, "device_id": self.device_id},
+            json={"code": enrollment_code, "device_id": self.device_id},
         )
         if enroll_response.status_code != 200:
             raise ReportingError(f"Enrollment failed: {enroll_response.text}")
@@ -54,11 +47,12 @@ class StatusReporter:
             raise ReportingError("Enrollment response missing report_token")
         return token
 
-    def _load_or_create_token(self) -> str:
-        """Return the stored report token, enrolling and persisting it (mode 0600) if absent.
+    def _load_or_create_token(self, enrollment_code: str | None = None) -> str:
+        """Return the stored report token, or enroll using an operator-provisioned code (mode 0600).
 
         Raises:
-            ReportingError: If token storage fails
+            ReportingError: If no token is stored and no enrollment code was provided,
+                or if enrollment fails
         """
         if self.token_path is not None:
             token_path = Path(self.token_path)
@@ -66,7 +60,13 @@ class StatusReporter:
                 stored = token_path.read_text().strip()
                 if stored:
                     return stored
-        raw_token = self.enroll()
+        if not enrollment_code:
+            raise ReportingError(
+                "No report token found and no enrollment code provided. "
+                "Ask the operator to mint a code (`holdfastctl enroll-code DEVICE_ID`) "
+                "and retry with --enrollment-code."
+            )
+        raw_token = self.enroll(enrollment_code)
         if self.token_path is not None:
             token_path = Path(self.token_path)
             token_path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,13 +74,14 @@ class StatusReporter:
             os.chmod(token_path, 0o600)
         return raw_token
 
-    def report_status(self, status_data: dict[str, Any]) -> bool:
+    def report_status(self, status_data: dict[str, Any], enrollment_code: str | None = None) -> bool:
         """
         Report device status to the control plane.
-        
+
         Args:
             status_data: Status information to report
-            
+            enrollment_code: Operator-provisioned one-time code used on first enrollment
+
         Returns:
             True if successful, False otherwise
             
@@ -88,7 +89,7 @@ class StatusReporter:
             ReportingError: If reporting fails
         """
         try:
-            token = self._load_or_create_token()
+            token = self._load_or_create_token(enrollment_code)
             url = f"{self.control_plane_url}/api/v1/devices/{self.device_id}/reports"
             response = requests.post(
                 url,
@@ -190,16 +191,19 @@ class ReportingService:
         """
         self.reporter = StatusReporter(control_plane_url, device_id)
 
-    def report_health(self) -> bool:
+    def report_health(self, enrollment_code: str | None = None) -> bool:
         """
         Report device health status.
         
+        Args:
+            enrollment_code: Operator-provisioned one-time code used on first enrollment
+            
         Returns:
             True if successful, False otherwise
         """
         try:
             status = self.reporter.get_device_status()
-            return self.reporter.report_status(status)
+            return self.reporter.report_status(status, enrollment_code=enrollment_code)
         except ReportingError:
             return False
 

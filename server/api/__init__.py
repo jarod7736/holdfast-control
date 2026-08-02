@@ -37,8 +37,11 @@ class PlanApprovalRequest(BaseModel):
     desired_commit: str = Field(min_length=1)
 
 
-def create_router(database_path: str) -> APIRouter:
+def create_router(database_path: str, admin_token: str | None = None) -> APIRouter:
     router = APIRouter()
+
+    def require_admin(authorization: str | None) -> None:
+        auth.authorize_admin(authorization, admin_token)
 
     @router.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -49,7 +52,8 @@ def create_router(database_path: str) -> APIRouter:
         return {"status": "ready"}
 
     @router.post("/api/v1/enrollment-codes")
-    def create_enrollment_code(request: EnrollmentCodeRequest) -> dict[str, Any]:
+    def create_enrollment_code(request: EnrollmentCodeRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        require_admin(authorization)
         return enrollment.create_enrollment_code(database_path, request.device_id, request.expires_in_seconds)
 
     @router.post("/api/v1/enroll")
@@ -69,7 +73,8 @@ def create_router(database_path: str) -> APIRouter:
         return {"status": "accepted"}
 
     @router.post("/api/v1/devices/{device_id}/plans")
-    def create_plan(device_id: str, request: PlanCreateRequest) -> dict[str, Any]:
+    def create_plan(device_id: str, request: PlanCreateRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        require_admin(authorization)
         plan_id = str(uuid.uuid4())
         expires_at = time.time() + request.expiry_hours * 3600
         created_at = time.time()
@@ -81,13 +86,15 @@ def create_router(database_path: str) -> APIRouter:
         return {"id": plan_id, "device_id": device_id, "desired_commit": request.desired_commit, "current_hash": request.current_hash, "expiry_timestamp": expires_at, "approval_status": "pending", "created_at": created_at}
 
     @router.get("/api/v1/devices/{device_id}/plans")
-    def list_plans(device_id: str) -> list[dict[str, Any]]:
+    def list_plans(device_id: str, authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
         with connection(database_path) as conn:
             rows = conn.execute("SELECT * FROM plans WHERE device_id = ? ORDER BY created_at", (device_id,)).fetchall()
         return [dict(row) for row in rows]
 
     @router.post("/api/v1/devices/{device_id}/plans/{plan_id}/approve")
-    def approve_plan(device_id: str, plan_id: str, request: PlanApprovalRequest) -> dict[str, str]:
+    def approve_plan(device_id: str, plan_id: str, request: PlanApprovalRequest, authorization: str | None = Header(default=None)) -> dict[str, str]:
+        require_admin(authorization)
         with connection(database_path) as conn:
             plan = conn.execute("SELECT * FROM plans WHERE id = ? AND device_id = ?", (plan_id, device_id)).fetchone()
             if plan is None:
@@ -104,13 +111,15 @@ def create_router(database_path: str) -> APIRouter:
         return {"status": "approved"}
 
     @router.get("/api/v1/devices/{device_id}/drift")
-    def drift(device_id: str) -> dict[str, Any]:
+    def drift(device_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        require_admin(authorization)
         with connection(database_path) as conn:
             report = conn.execute("SELECT created_at FROM device_reports WHERE device_id = ? ORDER BY created_at DESC LIMIT 1", (device_id,)).fetchone()
         return {"device_id": device_id, "status": "unknown" if report is None else "reported", "reported_at": None if report is None else report["created_at"]}
 
     @router.get("/api/v1/devices/{device_id}")
-    def device(device_id: str) -> dict[str, Any]:
+    def device(device_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        require_admin(authorization)
         with connection(database_path) as conn:
             report = conn.execute("SELECT created_at FROM device_reports WHERE device_id = ? ORDER BY created_at DESC LIMIT 1", (device_id,)).fetchone()
             plan_count = conn.execute("SELECT COUNT(*) FROM plans WHERE device_id = ?", (device_id,)).fetchone()
@@ -122,7 +131,8 @@ def create_router(database_path: str) -> APIRouter:
         }
 
     @router.get("/api/v1/devices")
-    def devices() -> list[dict[str, Any]]:
+    def devices(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
         with connection(database_path) as conn:
             rows = conn.execute(
                 "SELECT device_id, MAX(created_at) AS last_reported_at FROM device_reports GROUP BY device_id ORDER BY device_id"
@@ -141,19 +151,23 @@ def create_router(database_path: str) -> APIRouter:
         return result
 
     @router.get("/api/v1/capabilities")
-    def capabilities() -> list[dict[str, Any]]:
+    def capabilities(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
         return adapters.capabilities_status(database_path)
 
     @router.get("/api/v1/credentials/status")
-    def credential_status() -> list[dict[str, Any]]:
+    def credential_status(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
         return adapters.credentials_status(database_path)
 
     @router.get("/api/v1/integrations/status")
-    def integrations_status() -> list[dict[str, Any]]:
+    def integrations_status(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
         return adapters.integrations_status(database_path)
 
     @router.get("/api/v1/docs/status")
-    def docs_status() -> list[dict[str, Any]]:
+    def docs_status(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
         return adapters.docs_status()
 
     return router

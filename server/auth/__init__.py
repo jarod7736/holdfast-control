@@ -1,6 +1,7 @@
 """Authentication and token handling for the Holdfast control plane."""
 
 import hashlib
+import secrets
 import sqlite3
 from typing import Any
 
@@ -11,6 +12,22 @@ from holdfastctl.manifest_schema import validate_secret_literals
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def authorize_admin(authorization: str | None, expected_admin_token: str | None) -> None:
+    """Require the operator admin token, compared in constant time.
+
+    Fails closed: if the server was started without a configured admin token,
+    no operator action is permitted.
+    """
+    if expected_admin_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control plane not configured with an admin token (set HOLDFAST_ADMIN_TOKEN)",
+        )
+    token = authorization_token(authorization)
+    if not secrets.compare_digest(token, expected_admin_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
 
 
 def authorization_token(authorization: str | None) -> str:

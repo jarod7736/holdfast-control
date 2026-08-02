@@ -47,24 +47,31 @@ class TestStatusReporter:
             reporter.report_status({"status": "healthy"})
 
     @patch('requests.post')
-    def test_report_status_enrolls_when_no_token(self, mock_post, tmp_path):
-        """Test that reporting enrolls when no stored token exists and persists it 0600."""
+    def test_report_status_enrolls_with_provisioned_code(self, mock_post, tmp_path):
+        """Test that reporting enrolls with an operator-provisioned code and persists it 0600."""
         mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {"code": "code-123"}
-        mock_post.return_value.json.side_effect = [{"code": "code-123"}, {"report_token": "fresh-token"}]
+        mock_post.return_value.json.return_value = {"report_token": "fresh-token"}
 
         token_file = tmp_path / "report.token"
         reporter = StatusReporter("http://test-control-plane", "test-device-123", token_path=str(token_file))
-        result = reporter.report_status({"status": "healthy"})
+        result = reporter.report_status({"status": "healthy"}, enrollment_code="code-123")
         assert result is True
         assert token_file.read_text() == "fresh-token"
         assert token_file.stat().st_mode & 0o777 == 0o600
         urls = [call.args[0] for call in mock_post.call_args_list]
         assert urls == [
-            "http://test-control-plane/api/v1/enrollment-codes",
             "http://test-control-plane/api/v1/enroll",
             "http://test-control-plane/api/v1/devices/test-device-123/reports",
         ]
+
+    @patch('requests.post')
+    def test_report_status_requires_code_when_no_token(self, mock_post, tmp_path):
+        """Test that reporting raises when no token is stored and no code is provided."""
+        token_file = tmp_path / "report.token"
+        reporter = StatusReporter("http://test-control-plane", "test-device-123", token_path=str(token_file))
+        with pytest.raises(ReportingError, match="no enrollment code provided"):
+            reporter.report_status({"status": "healthy"})
+        assert mock_post.call_count == 0
 
     @patch('requests.post')
     def test_report_status_reuses_stored_token(self, mock_post, tmp_path):
@@ -148,10 +155,10 @@ class TestReportingService:
     def test_report_health_success(self, mock_post):
         """Test successful health reporting."""
         mock_post.return_value.status_code = 200
-        mock_post.return_value.json.side_effect = [{"code": "code-123"}, {"report_token": "health-token"}]
+        mock_post.return_value.json.return_value = {"report_token": "health-token"}
 
         service = ReportingService("http://test-control-plane", "test-device-123")
-        result = service.report_health()
+        result = service.report_health(enrollment_code="code-123")
         assert result is True
 
     @patch('requests.post')
@@ -161,7 +168,7 @@ class TestReportingService:
         mock_post.return_value.json.return_value = {"error": "server error"}
         
         service = ReportingService("http://test-control-plane", "test-device-123")
-        result = service.report_health()
+        result = service.report_health(enrollment_code="code-123")
         assert result is False
 
     @patch('requests.post')

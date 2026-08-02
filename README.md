@@ -10,21 +10,21 @@ Configuration management for home lab devices: an agent-driven system that inven
   - `reconcile` — compares current state to the desired manifest and produces a change plan
   - `report` — enrolls with the control plane, stores a report-only token (mode `0600`), and posts device status
   - Device identity is resolved from the config, then the hostname (hosts/DNS), then an interactive prompt.
-- **Control plane** — FastAPI server (`server/`), run with `python -m server`:
-  - One-time, expiring, device-bound enrollment codes; raw report tokens returned only at enrollment and stored as SHA-256 hashes
+- **Control plane** — FastAPI server (`server/`), run with `python -m server` (listens on `0.0.0.0` so every device on the LAN can reach it; override with `HOLDFAST_HOST`/`HOLDFAST_PORT`):
+  - Operator-gated enrollment: `POST /api/v1/enrollment-codes` requires an admin token (`HOLDFAST_ADMIN_TOKEN`, compared in constant time); devices exchange an operator-provisioned one-time code via `/enroll` and receive a report-only token stored as a SHA-256 hash
   - Token verification by hashed lookup (SHA-256 `token_hash`, parameterized SQL, no plaintext comparison), per-device token isolation, revocation support
-  - Authenticated report ingestion, plan creation/approval, and drift endpoints
-  - Health endpoints at `/healthz` and `/readyz`
+  - Admin-token auth on plan creation/approval, device listing, and capability/credential/integration status endpoints; device bearer-token auth on report ingestion
+  - Health endpoints at `/healthz` and `/readyz` (public)
 - **Manifests** (`manifests/`) — device and profile YAML describing desired capabilities and `op://` 1Password credential references. Secret literals are rejected; only `op://` references are accepted.
 
 ## API
 
-- `POST /api/v1/enrollment-codes` — generate an enrollment code for a device
-- `POST /api/v1/enroll` — exchange code for a raw report token
-- `POST /api/v1/devices/{device_id}/reports` — authenticated report ingestion
-- `POST` / `GET /api/v1/devices/{device_id}/plans` — plan creation and listing
-- `POST /api/v1/devices/{device_id}/plans/{plan_id}/approve` — plan approval bound to exact `current_hash`/`desired_commit`
-- `GET /api/v1/devices/{device_id}/drift` — drift reporting
+- `POST /api/v1/enrollment-codes` — generate an enrollment code for a device (admin token required)
+- `POST /api/v1/enroll` — exchange an operator-provisioned code for a raw report token (public)
+- `POST /api/v1/devices/{device_id}/reports` — device bearer-token authenticated report ingestion
+- `POST` / `GET /api/v1/devices/{device_id}/plans` — plan creation and listing (admin token required)
+- `POST /api/v1/devices/{device_id}/plans/{plan_id}/approve` — plan approval bound to exact `current_hash`/`desired_commit` (admin token required)
+- `GET /api/v1/devices/{device_id}/drift` — drift reporting (admin token required)
 
 Report payloads containing secret-shaped literals (e.g. AWS `AKIA…` keys) are rejected and never persisted.
 

@@ -230,6 +230,11 @@ def report(
         "-c",
         help="Agent config file",
     ),
+    enrollment_code: str | None = typer.Option(
+        None,
+        "--enrollment-code",
+        help="Operator-provisioned one-time code used on first enrollment",
+    ),
 ) -> None:
     """Inspect local state and report it to the control plane."""
     import yaml
@@ -260,7 +265,7 @@ def report(
     token_path = config.get("token_path") or str(config_path.parent / "report.token")
     reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
     try:
-        ok = reporter.report_status(status)
+        ok = reporter.report_status(status, enrollment_code=enrollment_code)
     except ReportingError as e:
         typer.echo(f"Error: reporting to {control_plane_url} failed: {e}", err=True)
         raise typer.Exit(code=1)
