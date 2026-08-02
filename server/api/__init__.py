@@ -9,12 +9,15 @@ from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from server import adapters, auth, enrollment
+from server.gateway import KeyMinter
 from server.storage import connection
 
 
 class EnrollmentCodeRequest(BaseModel):
     device_id: str = Field(min_length=1)
     expires_in_seconds: int = Field(default=600, ge=1, le=3600)
+    gateway_models: list[str] = Field(default_factory=list)
+    gateway_mcp_servers: list[str] = Field(default_factory=list)
 
 
 class EnrollmentRequest(BaseModel):
@@ -37,7 +40,7 @@ class PlanApprovalRequest(BaseModel):
     desired_commit: str = Field(min_length=1)
 
 
-def create_router(database_path: str, admin_token: str | None = None) -> APIRouter:
+def create_router(database_path: str, admin_token: str | None = None, mint_key: "KeyMinter | None" = None) -> APIRouter:
     router = APIRouter()
 
     def require_admin(authorization: str | None) -> None:
@@ -54,7 +57,13 @@ def create_router(database_path: str, admin_token: str | None = None) -> APIRout
     @router.post("/api/v1/enrollment-codes")
     def create_enrollment_code(request: EnrollmentCodeRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         require_admin(authorization)
-        return enrollment.create_enrollment_code(database_path, request.device_id, request.expires_in_seconds)
+        return enrollment.create_enrollment_code(
+            database_path,
+            request.device_id,
+            request.expires_in_seconds,
+            gateway_models=request.gateway_models,
+            gateway_mcp_servers=request.gateway_mcp_servers,
+        )
 
     @router.post("/api/v1/enroll")
     def enroll(request: EnrollmentRequest) -> dict[str, str]:

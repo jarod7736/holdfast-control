@@ -1,5 +1,6 @@
 """Enrollment code lifecycle for the Holdfast control plane."""
 
+import json
 import secrets
 import time
 import uuid
@@ -11,15 +12,34 @@ from server.auth import hash_token
 from server.storage import connection
 
 
-def create_enrollment_code(database_path: str, device_id: str, expires_in_seconds: int) -> dict[str, Any]:
+def create_enrollment_code(
+    database_path: str,
+    device_id: str,
+    expires_in_seconds: int,
+    gateway_models: list[str] | None = None,
+    gateway_mcp_servers: list[str] | None = None,
+) -> dict[str, Any]:
     code = secrets.token_urlsafe(32)
     expires_at = time.time() + expires_in_seconds
     with connection(database_path) as conn:
         conn.execute(
-            "INSERT INTO enrollment_codes(code, device_id, expires_at) VALUES (?, ?, ?)",
-            (code, device_id, expires_at),
+            "INSERT INTO enrollment_codes(code, device_id, expires_at, gateway_models, gateway_mcp_servers) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                code,
+                device_id,
+                expires_at,
+                json.dumps(gateway_models) if gateway_models else None,
+                json.dumps(gateway_mcp_servers) if gateway_mcp_servers else None,
+            ),
         )
-    return {"code": code, "device_id": device_id, "expires_at": expires_at}
+    return {
+        "code": code,
+        "device_id": device_id,
+        "expires_at": expires_at,
+        "gateway_models": gateway_models or [],
+        "gateway_mcp_servers": gateway_mcp_servers or [],
+    }
 
 
 def exchange_enrollment_code(database_path: str, code: str, device_id: str) -> dict[str, str]:
