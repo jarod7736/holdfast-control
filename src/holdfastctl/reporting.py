@@ -5,10 +5,20 @@ This module provides capabilities for reporting device status and configuration 
 
 import datetime
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import requests
+
+
+@dataclass
+class EnrollmentResult:
+    """Outcome of exchanging an enrollment code: report token plus optional one-time gateway key."""
+
+    report_token: str
+    gateway_key: str | None = None
+    gateway_key_alias: str | None = None
 
 
 class ReportingError(Exception):
@@ -20,7 +30,7 @@ class StatusReporter:
 
     def __init__(self, control_plane_url: str, device_id: str, token_path: str | None = None):
         """Initialize the status reporter.
-        
+
         Args:
             control_plane_url: URL of the control plane
             device_id: Unique identifier for this device
@@ -29,9 +39,14 @@ class StatusReporter:
         self.control_plane_url = control_plane_url
         self.device_id = device_id
         self.token_path = token_path
+        self.pending_gateway_key: str | None = None
+        self.pending_gateway_key_alias: str | None = None
 
-    def enroll(self, enrollment_code: str) -> str:
+    def enroll(self, enrollment_code: str) -> EnrollmentResult:
         """Exchange an operator-provisioned one-time enrollment code for a report token.
+
+        The response may include a one-time gateway virtual key; it is returned
+        to the caller and never persisted.
 
         Raises:
             ReportingError: If enrollment fails
@@ -42,10 +57,17 @@ class StatusReporter:
         )
         if enroll_response.status_code != 200:
             raise ReportingError(f"Enrollment failed: {enroll_response.text}")
-        token: Any = enroll_response.json().get("report_token")
+        body = enroll_response.json()
+        token: Any = body.get("report_token")
         if not isinstance(token, str):
             raise ReportingError("Enrollment response missing report_token")
-        return token
+        gateway_key = body.get("gateway_key")
+        gateway_key_alias = body.get("gateway_key_alias")
+        return EnrollmentResult(
+            report_token=token,
+            gateway_key=gateway_key if isinstance(gateway_key, str) else None,
+            gateway_key_alias=gateway_key_alias if isinstance(gateway_key_alias, str) else None,
+        )
 
     def _load_or_create_token(self, enrollment_code: str | None = None) -> str:
         """Return the stored report token, or enroll using an operator-provisioned code (mode 0600).
@@ -66,13 +88,15 @@ class StatusReporter:
                 "Ask the operator to mint a code (`holdfastctl enroll-code DEVICE_ID`) "
                 "and retry with --enrollment-code."
             )
-        raw_token = self.enroll(enrollment_code)
+        result = self.enroll(enrollment_code)
+        self.pending_gateway_key = result.gateway_key
+        self.pending_gateway_key_alias = result.gateway_key_alias
         if self.token_path is not None:
             token_path = Path(self.token_path)
             token_path.parent.mkdir(parents=True, exist_ok=True)
-            token_path.write_text(raw_token)
+            token_path.write_text(result.report_token)
             os.chmod(token_path, 0o600)
-        return raw_token
+        return result.report_token
 
     def report_status(self, status_data: dict[str, Any], enrollment_code: str | None = None) -> bool:
         """

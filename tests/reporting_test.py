@@ -137,10 +137,45 @@ class TestStatusReporter:
         """Test getting device status."""
         reporter = StatusReporter("http://test-control-plane", "test-device-123")
         status = reporter.get_device_status()
-        
+
         assert status["device_id"] == "test-device-123"
         assert "timestamp" in status
         assert status["status"] == "healthy"
+
+    @patch('requests.post')
+    def test_enroll_returns_gateway_key_and_never_stores_it(self, mock_post, tmp_path):
+        """A minted gateway key is surfaced on the reporter but never written to disk."""
+        def responses(url, **kwargs):
+            reply = type('R', (), {})()
+            reply.status_code = 200
+            if url.endswith('/api/v1/enroll'):
+                reply.json = lambda: {
+                    "report_token": "fresh-token",
+                    "gateway_key": "sk-minted-key",
+                    "gateway_key_alias": "holdfast-test-device-123-aa11",
+                }
+            else:
+                reply.json = lambda: {"status": "accepted"}
+            return reply
+
+        mock_post.side_effect = responses
+        token_file = tmp_path / "report.token"
+        reporter = StatusReporter("http://cp", "test-device-123", token_path=str(token_file))
+        assert reporter.report_status({"status": "healthy"}, enrollment_code="code-123") is True
+        assert reporter.pending_gateway_key == "sk-minted-key"
+        assert reporter.pending_gateway_key_alias == "holdfast-test-device-123-aa11"
+        assert token_file.read_text() == "fresh-token"
+        assert "sk-minted-key" not in token_file.read_text()
+
+    @patch('requests.post')
+    def test_enroll_without_gateway_key_leaves_pending_none(self, mock_post, tmp_path):
+        """Enrollment without a minted key leaves pending_gateway_key as None."""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"report_token": "fresh-token"}
+        token_file = tmp_path / "report.token"
+        reporter = StatusReporter("http://cp", "test-device-123", token_path=str(token_file))
+        reporter.report_status({"status": "healthy"}, enrollment_code="code-123")
+        assert reporter.pending_gateway_key is None
 
 
 class TestReportingService:

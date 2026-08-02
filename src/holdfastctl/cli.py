@@ -275,6 +275,16 @@ def report(
         raise typer.Exit(code=1)
 
     typer.echo(f"Reported {device_id} to {control_plane_url}")
+    if reporter.pending_gateway_key:
+        typer.echo("")
+        typer.echo("Gateway virtual key minted for this device (shown ONCE, never stored):")
+        typer.echo(f"  alias: {reporter.pending_gateway_key_alias}")
+        typer.echo(f"  key:   {reporter.pending_gateway_key}")
+        typer.echo("Store it in 1Password now, then export it in your shell profile, e.g.:")
+        typer.echo(
+            f"  op item create --vault holdfast-lan --category 'API Credential' "
+            f"--title 'litellm-{device_id}' credential='<paste key>'"
+        )
 
 
 @app.command()
