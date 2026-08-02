@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS enrollment_codes (
     code TEXT PRIMARY KEY,
     device_id TEXT NOT NULL,
     expires_at REAL NOT NULL,
-    used_at REAL
+    used_at REAL,
+    gateway_models TEXT,
+    gateway_mcp_servers TEXT
 );
 CREATE TABLE IF NOT EXISTS tokens (
     id TEXT PRIMARY KEY,
@@ -75,7 +77,20 @@ CREATE TABLE IF NOT EXISTS credential_metadata (
     credential_type TEXT,
     recovery_required INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS gateway_keys (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    key_alias TEXT NOT NULL,
+    models TEXT,
+    mcp_servers TEXT,
+    minted_at REAL NOT NULL
+);
 """
+
+_MIGRATIONS: list[str] = [
+    "ALTER TABLE enrollment_codes ADD COLUMN gateway_models TEXT",
+    "ALTER TABLE enrollment_codes ADD COLUMN gateway_mcp_servers TEXT",
+]
 
 
 def connection(database_path: str) -> sqlite3.Connection:
@@ -88,6 +103,11 @@ def init_database(database_path: str) -> None:
     Path(database_path).parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path) as connection:
         connection.executescript(_SCHEMA)
+        for statement in _MIGRATIONS:
+            try:
+                connection.execute(statement)
+            except sqlite3.OperationalError:
+                pass  # column already exists (fresh schema or already migrated)
         connection.executemany(
             "INSERT OR IGNORE INTO adapter_health(adapter, kind) VALUES (?, ?)",
             _ADAPTER_SEEDS,
