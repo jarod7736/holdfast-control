@@ -12,6 +12,7 @@ from holdfastctl.manifest_schema import (
     ProfileManifest,
     ProviderEntry,
     SkillEntry,
+    validate_capabilities,
     validate_duplicate_ids,
     validate_env_var_name,
     validate_no_arbitrary_commands,
@@ -51,6 +52,12 @@ def validate_manifest_file(file_path: Path) -> list[str]:
                     manifest = DeviceManifest(**data)
             except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
                 errors.append(f"Manifest structure validation failed: {e!s}")
+                return errors
+            # Validate capability entries against their per-type schemas
+            try:
+                validate_capabilities(data.get('capabilities', {}) or {})
+            except (ValueError, ValidationError) as e:
+                errors.append(f"Capability validation failed: {e!s}")
                 return errors
             # Validate credentials
             validate_duplicate_ids(manifest.credentials)

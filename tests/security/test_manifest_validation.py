@@ -13,9 +13,7 @@ device:
   id: valid-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: litellm-current-wsl
     reference: op://holdfast-lan/litellm-current-wsl/credential
@@ -42,9 +40,7 @@ device:
   id: valid-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: litellm-current-wsl
     reference: op://holdfast-lan/litellm-current-wsl/credential
@@ -69,9 +65,7 @@ device:
   id: invalid-device-secret
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: literal-secret
     reference: "sk-1234567890"
@@ -93,6 +87,33 @@ credentials:
     finally:
         os.unlink(temp_path)
 
+def test_unknown_capability_type_fails():
+    """Test that an unknown capability type (including the old top-level shape) is rejected"""
+    manifest_with_unknown_capability = """
+device:
+  id: test-device
+  profile: linux-wsl
+capabilities:
+  opencode: {required: true}
+  providers: [opencode-cloud]
+credentials:
+  - id: cred1
+    reference: op://holdfast-lan/cred1/credential
+    inject_as: LITELLM_API_KEY
+"""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write(manifest_with_unknown_capability)
+        f.flush()
+        temp_path = f.name
+
+    try:
+        errors = validate_manifest_file(Path(temp_path))
+        assert len(errors) > 0, "Should have unknown capability error"
+        assert "Unknown capability" in str(errors[0])
+    finally:
+        os.unlink(temp_path)
+
 def test_path_traversal_fails():
     """Test that path traversal is rejected"""
     # We can't easily test this in a manifest without paths, but let's check our validation functions
@@ -104,9 +125,7 @@ device:
   id: test-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: duplicate-id
     reference: op://holdfast-lan/cred1/credential
@@ -135,9 +154,7 @@ device:
   id: test-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: cred1
     reference: op://holdfast-lan/cred1/credential
@@ -166,9 +183,7 @@ device:
   id: test-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: cred1
     reference: op://holdfast-lan/cred1/credential
@@ -195,9 +210,7 @@ device:
   profile: linux-wsl
   command: /bin/bash -c "rm -rf /"
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: cred1
     reference: op://holdfast-lan/cred1/credential
@@ -223,9 +236,7 @@ device:
   id: test-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: test-cred
     reference: op://holdfast-lan/test-cred/credential
@@ -238,9 +249,7 @@ device:
   id: test-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: test-cred
     reference: op://holdfast-lan/test-cred/credential
@@ -278,9 +287,7 @@ device:
   profile: linux-wsl
   extra_field: this_should_not_be_allowed
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode: {required: true, config_profile: personal-development, providers: [opencode-cloud], mcp_servers: [github]}
 credentials:
   - id: cred1
     reference: op://holdfast-lan/cred1/credential

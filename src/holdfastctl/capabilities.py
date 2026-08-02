@@ -1,0 +1,250 @@
+"""
+Capability adapters for device reconciliation.
+
+Each capability type declared in a device manifest (opencode, network,
+gateway_access) is reconciled by its own adapter. Adapters read current
+state through injectable probes on the ReconcileContext so reconciliation
+is testable offline and never fabricates drift on probe failure.
+"""
+
+import hashlib
+import json
+import os
+import uuid
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from holdfastctl.reconcile import (
+    ConfigurationPlan,
+    generate_opencode_plan,
+    load_current_opencode_state,
+)
+
+Resolver = Callable[[str], str | None]
+HttpGet = Callable[..., tuple[int, Any] | None]
+
+
+def default_resolve_host(fqdn: str) -> str | None:
+    """Resolve a hostname to an IP, or None if it does not resolve."""
+    import socket
+
+    try:
+        return socket.gethostbyname(fqdn)
+    except OSError:
+        return None
+
+
+def default_http_get(url: str, headers: dict[str, str] | None = None) -> tuple[int, Any] | None:
+    """GET a URL with a short timeout. Returns (status, parsed body) or None on network failure."""
+    import requests
+
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+    except requests.RequestException:
+        return None
+    try:
+        body: Any = response.json()
+    except ValueError:
+        body = response.text
+    return response.status_code, body
+
+
+@dataclass
+class ReconcileContext:
+    """Shared inputs for every capability adapter run on one device."""
+
+    device_id: str
+    manifest_commit: str
+    credentials: list[dict[str, Any]]
+    catalog: dict[str, Any]
+    opencode_config_dir: Path
+    env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
+    resolve_host: Resolver = default_resolve_host
+    http_get: HttpGet = default_http_get
+
+
+def _sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _plan(
+    context: ReconcileContext,
+    *,
+    action: str,
+    target: str,
+    description: str,
+    state: Any,
+) -> ConfigurationPlan:
+    """Build a ConfigurationPlan whose current_hash fingerprints the probed state."""
+    return ConfigurationPlan(
+        plan_id=str(uuid.uuid4()),
+        device_id=context.device_id,
+        desired_commit=context.manifest_commit,
+        current_hash=_sha256_hex(json.dumps(state, sort_keys=True, default=str)),
+        expiry_timestamp=(datetime.now(UTC) + timedelta(hours=24)).timestamp(),
+        action=action,
+        target=target,
+        source="desired",
+        description=description,
+        checksum=_sha256_hex(target),
+    )
+
+
+class OpencodeAdapter:
+    """Reconcile opencode.json against the capability's declared providers/mcp servers."""
+
+    name = "opencode"
+
+    def reconcile(self, desired: dict[str, Any], context: ReconcileContext) -> list[ConfigurationPlan]:
+        providers_by_id = {p["id"]: p for p in context.catalog.get("providers", [])}
+        mcp_by_id = {m["id"]: m for m in context.catalog.get("mcp-servers", [])}
+        desired_state = {
+            "device_id": context.device_id,
+            "providers": [providers_by_id[pid] for pid in desired.get("providers", []) if pid in providers_by_id],
+            "mcp_servers": [mcp_by_id[mid] for mid in desired.get("mcp_servers", []) if mid in mcp_by_id],
+            "credentials": context.credentials,
+            "manifest_commit": context.manifest_commit,
+        }
+        current = load_current_opencode_state(context.opencode_config_dir)
+        return generate_opencode_plan(current, desired_state)
+
+
+class NetworkAdapter:
+    """Check the device's DNS presence in the zone and gateway reachability.
+
+    Any HTTP response (including 401/404) counts as reachable; only a network
+    failure counts as unreachable.
+    """
+
+    name = "network"
+
+    def reconcile(self, desired: dict[str, Any], context: ReconcileContext) -> list[ConfigurationPlan]:
+        plans: list[ConfigurationPlan] = []
+        hostname = desired.get("hostname") or context.device_id
+        dns_zone = desired.get("dns_zone", "holdfast.lan")
+        fqdn = f"{hostname}.{dns_zone}"
+        ip = context.resolve_host(fqdn)
+        state = {"fqdn": fqdn, "ip": ip}
+        if ip is None:
+            plans.append(
+                _plan(
+                    context,
+                    action="repair",
+                    target=f"dns:{fqdn}",
+                    description=f"'{fqdn}' does not resolve - device missing from {dns_zone} DNS",
+                    state=state,
+                )
+            )
+        gateway_url = desired.get("gateway_url")
+        if gateway_url and context.http_get(f"{gateway_url}/health/liveliness") is None:
+            plans.append(
+                _plan(
+                    context,
+                    action="repair",
+                    target=f"gateway:{gateway_url}",
+                    description=f"gateway {gateway_url} is unreachable from this device",
+                    state=state,
+                )
+            )
+        return plans
+
+
+class GatewayAccessAdapter:
+    """Check the device's LiteLLM virtual-key scope against the manifest declaration.
+
+    Declared mcp_servers are recorded in the manifest but not yet verified live;
+    only model scope is checked against the gateway.
+    """
+
+    name = "gateway_access"
+
+    def reconcile(self, desired: dict[str, Any], context: ReconcileContext) -> list[ConfigurationPlan]:
+        key_env = desired.get("key_env", "LITELLM_API_KEY")
+        gateway_url = desired["gateway_url"]
+        key = context.env.get(key_env)
+        if not key:
+            return [
+                _plan(
+                    context,
+                    action="add",
+                    target=f"gateway_key:{key_env}",
+                    description=f"no virtual key in {key_env} - enroll the device to mint one",
+                    state={"key_env": key_env, "key_present": False},
+                )
+            ]
+        response = context.http_get(f"{gateway_url}/v1/models", {"Authorization": f"Bearer {key}"})
+        if response is None or response[0] != 200:
+            return [
+                _plan(
+                    context,
+                    action="unknown",
+                    target="gateway:scope",
+                    description="could not verify virtual-key scope against the gateway",
+                    state={"status": None if response is None else response[0]},
+                )
+            ]
+        live_models = {m.get("id") for m in response[1].get("data", [])}
+        return [
+            _plan(
+                context,
+                action="grant",
+                target=f"model:{model}",
+                description=f"declared model '{model}' is not accessible with this key",
+                state={"live_models": sorted(m for m in live_models if m)},
+            )
+            for model in desired.get("models", [])
+            if model not in live_models
+        ]
+
+
+ADAPTERS: dict[str, OpencodeAdapter | NetworkAdapter | GatewayAccessAdapter] = {
+    adapter.name: adapter for adapter in (OpencodeAdapter(), NetworkAdapter(), GatewayAccessAdapter())
+}
+
+
+def reconcile_device(
+    manifest_path: Path,
+    catalog_path: Path,
+    *,
+    opencode_config_dir: Path,
+    env: Mapping[str, str] | None = None,
+    resolve_host: Resolver | None = None,
+    http_get: HttpGet | None = None,
+) -> dict[str, list[ConfigurationPlan]]:
+    """Load a device manifest and dispatch every declared capability to its adapter.
+
+    Returns plans grouped by capability name. Unknown capability types raise
+    ValueError (validated before any adapter runs).
+    """
+    import yaml
+
+    from holdfastctl.manifest_schema import validate_capabilities
+
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest = yaml.safe_load(manifest_text) or {}
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
+    capabilities = manifest.get("capabilities", {}) or {}
+    validate_capabilities(capabilities)
+
+    context = ReconcileContext(
+        device_id=(manifest.get("device") or {}).get("id", "unknown"),
+        manifest_commit=_sha256_hex(manifest_text),
+        credentials=manifest.get("credentials", []) or [],
+        catalog=catalog,
+        opencode_config_dir=opencode_config_dir,
+    )
+    if env is not None:
+        context.env = env
+    if resolve_host is not None:
+        context.resolve_host = resolve_host
+    if http_get is not None:
+        context.http_get = http_get
+
+    return {
+        name: ADAPTERS[name].reconcile(config or {}, context)
+        for name, config in capabilities.items()
+        if name in ADAPTERS
+    }

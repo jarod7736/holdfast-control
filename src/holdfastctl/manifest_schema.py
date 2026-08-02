@@ -2,7 +2,7 @@ import os
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CredentialRef(BaseModel):
@@ -42,6 +42,54 @@ class SkillEntry(BaseModel):
     checksum: str
     owner: str
     purpose: str
+
+
+class OpencodeCapability(BaseModel):
+    """opencode capability: reconcile opencode.json against declared providers/mcp servers"""
+    model_config = ConfigDict(extra="forbid")
+    required: bool = False
+    config_profile: str | None = None
+    providers: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
+
+
+class NetworkCapability(BaseModel):
+    """network capability: DNS presence in the zone and gateway reachability"""
+    model_config = ConfigDict(extra="forbid")
+    hostname: str | None = None
+    dns_zone: str = "holdfast.lan"
+    gateway_url: str | None = None
+
+
+class GatewayAccessCapability(BaseModel):
+    """gateway_access capability: LiteLLM virtual-key scope (models/mcp servers)"""
+    model_config = ConfigDict(extra="forbid")
+    gateway_url: str
+    models: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(default_factory=list)
+    key_env: str = "LITELLM_API_KEY"
+
+
+CAPABILITY_SCHEMAS: dict[str, type[BaseModel]] = {
+    "opencode": OpencodeCapability,
+    "network": NetworkCapability,
+    "gateway_access": GatewayAccessCapability,
+}
+
+
+def validate_capabilities(capabilities: dict[str, Any]) -> None:
+    """Validate each capability entry against its schema; unknown capability types are rejected.
+
+    managed_paths is not a capability adapter; its path values are validated
+    separately by validate_path_safety.
+    """
+    for name, config in capabilities.items():
+        if name == "managed_paths":
+            continue
+        schema = CAPABILITY_SCHEMAS.get(name)
+        if schema is None:
+            raise ValueError(f"Unknown capability type: {name}")
+        schema(**(config or {}))
 
 
 class DeviceInfo(BaseModel):

@@ -10,6 +10,9 @@ This directory contains the Pydantic models that define the structure and valida
 - `ProviderEntry`: Provider entry structure
 - `McpServerEntry`: MCP server entry structure
 - `SkillEntry`: Skill entry structure
+- `OpencodeCapability`: opencode capability entry (nested providers/mcp_servers)
+- `NetworkCapability`: network capability entry (DNS presence, gateway reachability)
+- `GatewayAccessCapability`: gateway_access capability entry (LiteLLM virtual-key scope)
 
 ## Validation Rules
 
@@ -33,3 +36,5 @@ Manifests must pass the following validation rules:
 5. **Environment Variable Name Validation**: `inject_as` env var names must match ^[A-Z][A-Z0-9_]*$
 
 6. **Catalog Validation**: Catalog files (providers.yaml, mcp-servers.yaml, skills.yaml) are validated against their respective schema entries and also have additional checks for command and path safety.
+
+7. **Capability Types**: Every entry under `capabilities:` must be a known capability adapter (`opencode`, `network`, `gateway_access`); unknown capability types are rejected, and each entry is validated against its per-type schema (extra fields rejected).

@@ -240,16 +240,17 @@ def load_desired_state(manifest_path: Path, catalog_path: Path) -> dict[str, Any
 
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
-    capabilities = manifest.get("capabilities", {})
+    # providers/mcp_servers are nested under the opencode capability entry
+    opencode_caps = manifest.get("capabilities", {}).get("opencode") or {}
     providers_by_id = {p["id"]: p for p in catalog.get("providers", [])}
     mcp_by_id = {m["id"]: m for m in catalog.get("mcp-servers", [])}
 
     return {
         "device_id": (manifest.get("device") or {}).get("id", "unknown"),
         "profile": (manifest.get("device") or {}).get("profile", "unknown"),
-        "opencode": capabilities.get("opencode", {}),
-        "providers": [providers_by_id[pid] for pid in capabilities.get("providers", []) if pid in providers_by_id],
-        "mcp_servers": [mcp_by_id[mid] for mid in capabilities.get("mcp_servers", []) if mid in mcp_by_id],
+        "opencode": opencode_caps,
+        "providers": [providers_by_id[pid] for pid in opencode_caps.get("providers", []) if pid in providers_by_id],
+        "mcp_servers": [mcp_by_id[mid] for mid in opencode_caps.get("mcp_servers", []) if mid in mcp_by_id],
         "credentials": manifest.get("credentials", []),
         "manifest_commit": _sha256_hex(manifest_path.read_text(encoding="utf-8")),
     }

@@ -2,9 +2,11 @@ device:
   id: valid-device
   profile: linux-wsl
 capabilities:
-  opencode: {required: true, config_profile: personal-development}
-  providers: [opencode-cloud]
-  mcp_servers: [github]
+  opencode:
+    required: true
+    config_profile: personal-development
+    providers: [opencode-cloud]
+    mcp_servers: [github]
 credentials:
   - id: litellm-current-wsl
     reference: op://holdfast-lan/litellm-current-wsl/credential
