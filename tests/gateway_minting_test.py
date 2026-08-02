@@ -120,7 +120,9 @@ def test_mint_failure_returns_502_and_code_stays_usable(tmp_path):
     assert retry.json()["gateway_key"] == "sk-second-try"
 
 
-def test_scope_without_configured_minter_returns_503(tmp_path):
+def test_scope_without_configured_minter_returns_503(tmp_path, monkeypatch):
+    monkeypatch.delenv("HOLDFAST_LITELLM_URL", raising=False)
+    monkeypatch.delenv("HOLDFAST_LITELLM_ADMIN_TOKEN", raising=False)
     client, _ = make_client(tmp_path, mint_key=None)
     code = mint_code(client, gateway_models=["or-cheap"])
     assert enroll(client, code).status_code == 503
