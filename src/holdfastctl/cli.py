@@ -287,6 +287,48 @@ def report(
         )
 
 
+@app.command("enroll-code")
+def enroll_code(
+    device_id: str = typer.Argument(..., help="Device id the one-time code is bound to"),
+    models: str = typer.Option("", "--models", help="Comma-separated gateway model ids for the device's virtual key"),
+    mcp_servers: str = typer.Option("", "--mcp", help="Comma-separated MCP server ids recorded in key metadata"),
+    control_plane_url: str = typer.Option("http://127.0.0.1:8000", "--control-plane", help="Control plane URL"),
+    expires_in_seconds: int = typer.Option(600, "--expires", help="Code lifetime in seconds"),
+) -> None:
+    """Operator: mint a one-time enrollment code (requires HOLDFAST_ADMIN_TOKEN)."""
+    import os
+
+    import requests
+
+    admin_token = os.environ.get("HOLDFAST_ADMIN_TOKEN")
+    if not admin_token:
+        typer.echo("Error: HOLDFAST_ADMIN_TOKEN is not set", err=True)
+        raise typer.Exit(code=1)
+    payload = {
+        "device_id": device_id,
+        "expires_in_seconds": expires_in_seconds,
+        "gateway_models": [m.strip() for m in models.split(",") if m.strip()],
+        "gateway_mcp_servers": [m.strip() for m in mcp_servers.split(",") if m.strip()],
+    }
+    try:
+        response = requests.post(
+            f"{control_plane_url}/api/v1/enrollment-codes",
+            json=payload,
+            headers={"Authorization": f"Bearer {admin_token}"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        typer.echo(f"Error: control plane unreachable: {e}", err=True)
+        raise typer.Exit(code=1)
+    if response.status_code != 200:
+        typer.echo(f"Error: code creation failed (status {response.status_code})", err=True)
+        raise typer.Exit(code=1)
+    code = response.json()["code"]
+    typer.echo(f"Enrollment code for {device_id} (valid {expires_in_seconds}s):")
+    typer.echo(f"  {code}")
+    typer.echo(f"On the device: holdfastctl report --enrollment-code {code}")
+
+
 @app.command()
 def reconcile(
     manifest_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default

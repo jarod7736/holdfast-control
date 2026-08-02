@@ -44,3 +44,45 @@ class TestDoctorCommand:
         result = runner.invoke(app, ["doctor", "--json"])
         data = json.loads(result.output)
         assert data["checks"]["os"]["system"].lower() == platform.system().lower()
+
+
+class TestEnrollCodeCommand:
+    """The operator enroll-code command mints a device-bound code with gateway scope."""
+
+    def test_requires_admin_token_env(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        from holdfastctl.cli import app
+
+        monkeypatch.delenv("HOLDFAST_ADMIN_TOKEN", raising=False)
+        result = CliRunner().invoke(app, ["enroll-code", "device-a"])
+        assert result.exit_code == 1
+        assert "HOLDFAST_ADMIN_TOKEN" in result.output
+
+    def test_mints_code_with_scope(self, monkeypatch):
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from holdfastctl.cli import app
+
+        monkeypatch.setenv("HOLDFAST_ADMIN_TOKEN", "admin-token")
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {"code": "one-time-code", "device_id": "device-a"}
+            result = CliRunner().invoke(
+                app,
+                [
+                    "enroll-code", "device-a",
+                    "--models", "or-cheap,or-opus",
+                    "--mcp", "github",
+                    "--control-plane", "http://cp:8000",
+                ],
+            )
+        assert result.exit_code == 0
+        assert "one-time-code" in result.output
+        request = mock_post.call_args
+        assert request.args[0] == "http://cp:8000/api/v1/enrollment-codes"
+        assert request.kwargs["headers"] == {"Authorization": "Bearer admin-token"}
+        assert request.kwargs["json"]["gateway_models"] == ["or-cheap", "or-opus"]
+        assert request.kwargs["json"]["gateway_mcp_servers"] == ["github"]
