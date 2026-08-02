@@ -6,7 +6,7 @@
 1. **SQLite persistence** - All required database tables created properly
 2. **One-time expiring device-bound enrollment codes** - Generated and validated correctly
 3. **Raw report token returned only during enrollment and hash-only stored** - Tokens stored as SHA256 hashes
-4. **Constant-time verification** - Uses `secrets.compare_digest` for secure token comparison
+4. **Token verification** - Presented tokens are hashed and matched against the stored `token_hash` via a parameterized SQL lookup (no plaintext tokens stored or compared)
 5. **Token revocation** - Database supports revoked flag for tokens
 6. **Report auth/device isolation** - Device-specific tokens and codes
 7. **Health/readiness endpoints** - `/healthz` and `/readyz` functional

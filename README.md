@@ -12,7 +12,7 @@ Configuration management for home lab devices: an agent-driven system that inven
   - Device identity is resolved from the config, then the hostname (hosts/DNS), then an interactive prompt.
 - **Control plane** — FastAPI server (`server/`), run with `python -m server`:
   - One-time, expiring, device-bound enrollment codes; raw report tokens returned only at enrollment and stored as SHA-256 hashes
-  - Constant-time token verification (`secrets.compare_digest`), per-device token isolation, revocation support
+  - Token verification by hashed lookup (SHA-256 `token_hash`, parameterized SQL, no plaintext comparison), per-device token isolation, revocation support
   - Authenticated report ingestion, plan creation/approval, and drift endpoints
   - Health endpoints at `/healthz` and `/readyz`
 - **Manifests** (`manifests/`) — device and profile YAML describing desired capabilities and `op://` 1Password credential references. Secret literals are rejected; only `op://` references are accepted.

@@ -31,7 +31,12 @@ def exchange_enrollment_code(database_path: str, code: str, device_id: str) -> d
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired enrollment code")
         if row["device_id"] != device_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enrollment code is bound to another device")
-        conn.execute("UPDATE enrollment_codes SET used_at = ? WHERE code = ?", (time.time(), code))
+        # Atomically claim the code so concurrent exchanges cannot both succeed.
+        claimed = conn.execute(
+            "UPDATE enrollment_codes SET used_at = ? WHERE code = ? AND used_at IS NULL", (time.time(), code)
+        )
+        if claimed.rowcount != 1:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired enrollment code")
         raw_token = secrets.token_urlsafe(48)
         conn.execute(
             "INSERT INTO tokens(id, device_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
