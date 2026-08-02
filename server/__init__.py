@@ -18,7 +18,9 @@ def create_app(
     mint_key: "KeyMinter | None" = None,
 ) -> FastAPI:
     if database_path is None:
-        database_path = str(Path.home() / ".holdfast" / "control-plane.db")
+        database_path = os.environ.get("HOLDFAST_DB_PATH") or str(
+            Path.home() / ".holdfast" / "control-plane.db"
+        )
     if admin_token is None:
         admin_token = os.environ.get("HOLDFAST_ADMIN_TOKEN")
     init_database(database_path)
