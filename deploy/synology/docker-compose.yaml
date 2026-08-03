@@ -1,0 +1,20 @@
+# Holdfast control plane — Synology Container Manager deployment.
+# Lives at /volume1/docker/holdfast/docker-compose.yaml on the NAS.
+# Secrets come from a sibling .env file (never committed):
+#   HOLDFAST_ADMIN_TOKEN            — operator admin token (1Password: holdfast-lan)
+#   HOLDFAST_LITELLM_URL            — http://192.168.1.181:4000
+#   HOLDFAST_LITELLM_ADMIN_TOKEN    — key-management-scoped (1Password: holdfast-automation/litellm-key-admin)
+# Dashboard: http://192.168.1.181:8200/ui (token prompt; API on the same port).
+services:
+  control-plane:
+    build: .
+    container_name: holdfast-control-plane
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8200:8000"
+    environment:
+      HOLDFAST_ADMIN_TOKEN: ${HOLDFAST_ADMIN_TOKEN}
+      HOLDFAST_LITELLM_URL: ${HOLDFAST_LITELLM_URL}
+      HOLDFAST_LITELLM_ADMIN_TOKEN: ${HOLDFAST_LITELLM_ADMIN_TOKEN}
+    volumes:
+      - ./data:/data

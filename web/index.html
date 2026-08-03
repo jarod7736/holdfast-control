@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Holdfast Control</title>
+    <style>
+        /* Base styles and variables */
+        :root {
+            /* Color palette */
+            --bg-dark: #0a0a0a;
+            --bg-panel: #121212;
+            --bg-card: #181818;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --text-tertiary: #606060;
+            --accent-green: #4ade80;
+            --accent-amber: #fbbf24;
+            --accent-red: #f87171;
+            --accent-blue: #60a5fa;
+            --border-color: #333333;
+            --status-ok: var(--accent-green);
+            --status-warning: var(--accent-amber);
+            --status-error: var(--accent-red);
+            --status-info: var(--accent-blue);
+            --font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+            --font-sans: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 2rem;
+            --border-radius: 4px;
+            --transition: all 0.2s ease;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.5;
+            padding: var(--spacing-md);
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-lg);
+            padding-bottom: var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logo {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .logo .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .auth-controls {
+            display: flex;
+            gap: var(--spacing-sm);
+        }
+
+        button {
+            background-color: var(--bg-panel);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            transition: var(--transition);
+            font-family: var(--font-sans);
+        }
+
+        button:hover {
+            background-color: var(--bg-card);
+        }
+
+        /* Token entry screen */
+        #token-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 80vh;
+            text-align: center;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        #token-screen h2 {
+            margin-bottom: var(--spacing-lg);
+        }
+
+        .token-input-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 300px;
+            gap: var(--spacing-sm);
+        }
+
+        input[type="password"] {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: var(--spacing-md);
+            border-radius: var(--border-radius);
+            font-family: var(--font-mono);
+            font-size: 1rem;
+        }
+
+        .error-message {
+            color: var(--accent-red);
+            font-size: 0.9rem;
+            margin-top: var(--spacing-xs);
+            height: 1.2rem;
+        }
+
+        /* Dashboard */
+        #dashboard {
+            display: none;
+        }
+
+        /* Sections */
+        .section {
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .section-header h2 {
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+
+        /* Cards */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: var(--spacing-md);
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-md);
+            transition: var(--transition);
+        }
+
+        .card:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-md);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .card-content {
+            font-size: 0.9rem;
+        }
+
+        /* Status badges */
+        .status-badge {
+            display: inline-block;
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-ok {
+            background-color: rgba(74, 222, 128, 0.15);
+            color: var(--accent-green);
+        }
+
+        .status-warning {
+            background-color: rgba(251, 191, 36, 0.15);
+            color: var(--accent-amber);
+        }
+
+        .status-error {
+            background-color: rgba(248, 113, 113, 0.15);
+            color: var(--accent-red);
+        }
+
+        .status-info {
+            background-color: rgba(96, 165, 250, 0.15);
+            color: var(--accent-blue);
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        td {
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Chips */
+        .chip {
+            display: inline-block;
+            padding: var(--spacing-xs) var(--spacing-sm);
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            margin-right: var(--spacing-xs);
+            margin-bottom: var(--spacing-xs);
+        }
+
+        /* Empty states */
+        .empty-state {
+            text-align: center;
+            padding: var(--spacing-lg);
+            color: var(--text-tertiary);
+        }
+
+        /* Relative time */
+        .relative-time {
+            cursor: help;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: var(--spacing-md);
+            color: var(--text-tertiary);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: var(--spacing-xl);
+        }
+
+        .refresh-controls {
+            display: flex;
+            justify-content: center;
+            gap: var(--spacing-md);
+            margin-top: var(--spacing-sm);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                padding: var(--spacing-sm);
+            }
+            
+            .card-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .section-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: var(--spacing-sm);
+            }
+            
+            table {
+                font-size: 0.9rem;
+            }
+            
+            th, td {
+                padding: var(--spacing-xs) var(--spacing-sm);
+            }
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: var(--spacing-lg);
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid var(--accent-blue);
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Device card columns */
+        .device-card {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .device-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .device-status {
+            display: flex;
+            gap: var(--spacing-xs);
+            align-items: center;
+        }
+
+        .device-id {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--accent-blue);
+        }
+
+        .device-info {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Token Entry Screen -->
+    <div id="token-screen">
+        <h2>Holdfast Control</h2>
+        <div class="token-input-container">
+            <input type="password" id="token-input" placeholder="Enter admin token" autocomplete="off">
+            <button id="token-submit">Access Dashboard</button>
+            <div class="error-message" id="token-error"></div>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard">
+        <header>
+            <div class="logo">
+                <h1>Holdfast Control</h1>
+                <div class="subtitle">Homelab Configuration Management</div>
+            </div>
+            <div class="auth-controls">
+                <button id="sign-out">Sign Out</button>
+            </div>
+        </header>
+
+        <!-- Devices Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>Devices</h2>
+            </div>
+            <div class="card-grid" id="devices-container">
+                <div class="empty-state">No devices registered</div>
+            </div>
+        </section>
+
+        <!-- Gateway Keys Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>Gateway Keys</h2>
+            </div>
+            <div class="card">
+                <table id="gateway-keys-table">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Key Alias</th>
+                            <th>Models</th>
+                            <th>MCP Servers</th>
+                            <th>Minted</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gateway-keys-body">
+                        <tr>
+                            <td colspan="5" class="empty-state">No gateway keys configured</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Plans Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>Plans</h2>
+            </div>
+            <div class="card">
+                <table id="plans-table">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Commit</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Expiry</th>
+                        </tr>
+                    </thead>
+                    <tbody id="plans-body">
+                        <tr>
+                            <td colspan="5" class="empty-state">No plans configured</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- System Health Section -->
+        <section class="section">
+            <div class="section-header">
+                <h2>System Health</h2>
+            </div>
+            <div class="card-grid" id="health-container">
+                <div class="empty-state">Loading system status...</div>
+            </div>
+        </section>
+
+        <footer>
+            <div>Data refreshes every 60s</div>
+            <div class="refresh-controls">
+                <button id="manual-refresh">Manual Refresh</button>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // DOM Elements
+        const tokenScreen = document.getElementById('token-screen');
+        const dashboard = document.getElementById('dashboard');
+        const tokenInput = document.getElementById('token-input');
+        const tokenSubmit = document.getElementById('token-submit');
+        const tokenError = document.getElementById('token-error');
+        const signOutBtn = document.getElementById('sign-out');
+        const devicesContainer = document.getElementById('devices-container');
+        const gatewayKeysBody = document.getElementById('gateway-keys-body');
+        const plansBody = document.getElementById('plans-body');
+        const healthContainer = document.getElementById('health-container');
+        const manualRefreshBtn = document.getElementById('manual-refresh');
+
+        // API Base URL
+        const API_BASE = '/api/v1';
+
+        // Utility functions
+        function relativeTime(timestamp) {
+            if (!timestamp) return 'never';
+            
+            const now = Math.floor(Date.now() / 1000);
+            const diff = now - timestamp;
+            
+            if (diff < 0) return 'in the future';
+            
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return `${Math.floor(diff / 86400)}d ago`;
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'never';
+            return new Date(timestamp * 1000).toLocaleString();
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 60) return `${seconds}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+            return `${Math.floor(seconds / 86400)}d`;
+        }
+
+        function clearToken() {
+            sessionStorage.removeItem('holdfast_admin_token');
+            tokenScreen.style.display = 'flex';
+            dashboard.style.display = 'none';
+            tokenInput.value = '';
+            tokenError.textContent = '';
+        }
+
+        // API Call Function
+        async function apiCall(endpoint, options = {}) {
+            const token = sessionStorage.getItem('holdfast_admin_token');
+            if (!token) {
+                clearToken();
+                return;
+            }
+
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                ...options.headers
+            };
+
+            try {
+                const response = await fetch(endpoint, {
+                    ...options,
+                    headers
+                });
+
+                if (response.status === 401 || response.status === 403) {
+                    clearToken();
+                    tokenError.textContent = 'Token rejected';
+                    return null;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                tokenError.textContent = 'Network error occurred';
+                return null;
+            }
+        }
+
+        // Render Devices
+        function renderDevices(devices) {
+            if (!devices || devices.length === 0) {
+                devicesContainer.innerHTML = '<div class="empty-state">No devices registered</div>';
+                return;
+            }
+
+            devicesContainer.innerHTML = devices.map(device => {
+                const lastReported = device.last_reported_at ? relativeTime(device.last_reported_at) : 'never';
+                let statusClass = 'status-warning';
+                let statusText = 'unknown';
+                
+                if (device.drift_status === 'reported') {
+                    statusClass = 'status-ok';
+                    statusText = 'reported';
+                } else if (device.drift_status === 'unknown') {
+                    statusClass = 'status-warning';
+                    statusText = 'unknown';
+                }
+
+                return `
+                    <div class="card">
+                        <div class="device-card">
+                            <div class="device-header">
+                                <div class="device-id">${device.id}</div>
+                                <div class="device-plan-count">${device.plan_count} plans</div>
+                            </div>
+                            <div class="device-info">
+                                <div>Last reported: <span class="relative-time" title="${formatTimestamp(device.last_reported_at)}">${lastReported}</span></div>
+                                <div class="device-status">
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render Gateway Keys
+        function renderGatewayKeys(keys) {
+            if (!keys || keys.length === 0) {
+                gatewayKeysBody.innerHTML = '<tr><td colspan="5" class="empty-state">No gateway keys configured</td></tr>';
+                return;
+            }
+
+            gatewayKeysBody.innerHTML = keys.map(key => {
+                const models = key.models.length > 0 
+                    ? key.models.map(model => `<span class="chip">${model}</span>`).join('')
+                    : '<span class="chip">-</span>';
+                    
+                const mcpServers = key.mcp_servers.length > 0
+                    ? key.mcp_servers.map(server => `<span class="chip">${server}</span>`).join('')
+                    : '<span class="chip">-</span>';
+
+                return `
+                    <tr>
+                        <td class="device-id">${key.device_id}</td>
+                        <td><code>${key.key_alias}</code></td>
+                        <td>${models}</td>
+                        <td>${mcpServers}</td>
+                        <td class="relative-time" title="${formatTimestamp(key.minted_at)}">${relativeTime(key.minted_at)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Render Plans
+        function renderPlans(plans) {
+            if (!plans || plans.length === 0) {
+                plansBody.innerHTML = '<tr><td colspan="5" class="empty-state">No plans configured</td></tr>';
+                return;
+            }
+
+            plansBody.innerHTML = plans.map(plan => {
+                const statusClass = plan.approval_status === 'approved' 
+                    ? 'status-ok' 
+                    : 'status-warning';
+                const statusText = plan.approval_status === 'approved' ? 'approved' : 'pending';
+                const expiryStatus = plan.expiry_timestamp && plan.expiry_timestamp < Math.floor(Date.now() / 1000)
+                    ? 'status-error'
+                    : 'status-ok';
+                const expiryText = plan.expiry_timestamp && plan.expiry_timestamp < Math.floor(Date.now() / 1000)
+                    ? 'expired'
+                    : `${formatDuration(plan.expiry_timestamp - Math.floor(Date.now() / 1000))} remaining`;
+
+                return `
+                    <tr>
+                        <td class="device-id">${plan.device_id}</td>
+                        <td><code>${plan.desired_commit.substring(0, 8)}</code></td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td class="relative-time" title="${formatTimestamp(plan.created_at)}">${relativeTime(plan.created_at)}</td>
+                        <td><span class="status-badge ${expiryStatus}">${expiryText}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Render Health Status
+        function renderHealthStatus(data) {
+            if (!data || data.length === 0) {
+                healthContainer.innerHTML = '<div class="empty-state">No health data available</div>';
+                return;
+            }
+
+            healthContainer.innerHTML = data.map(item => {
+                let statusClass = 'status-warning';
+                let statusText = item.status;
+
+                if (item.status === 'unknown') {
+                    statusClass = 'status-warning';
+                    statusText = 'unknown';
+                } else if (item.status === 'ok') {
+                    statusClass = 'status-ok';
+                    statusText = 'ok';
+                } else if (item.status === 'error') {
+                    statusClass = 'status-error';
+                    statusText = 'error';
+                } else if (item.status === 'warning') {
+                    statusClass = 'status-warning';
+                    statusText = 'warning';
+                }
+
+                return `
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">${item.adapter}</div>
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="card-content">
+                            <div>Kind: ${item.kind}</div>
+                            ${item.detail ? `<div>Detail: ${item.detail}</div>` : ''}
+                            ${item.last_checked_at ? `<div>Checked: <span class="relative-time" title="${formatTimestamp(item.last_checked_at)}">${relativeTime(item.last_checked_at)}</span></div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Fetch and render all data
+        async function fetchAndRenderData() {
+            try {
+                // Fetch all data in parallel
+                const [devices, gatewayKeys, plans, capabilities, integrations, credentials, docs] = await Promise.all([
+                    apiCall(`${API_BASE}/devices`),
+                    apiCall(`${API_BASE}/gateway-keys`),
+                    apiCall(`${API_BASE}/plans`),
+                    apiCall(`${API_BASE}/capabilities`),
+                    apiCall(`${API_BASE}/integrations/status`),
+                    apiCall(`${API_BASE}/credentials/status`),
+                    apiCall(`${API_BASE}/docs/status`)
+                ]);
+
+                // Render data
+                renderDevices(devices);
+                renderGatewayKeys(gatewayKeys);
+                renderPlans(plans);
+
+                // Render health status
+                const allHealth = [
+                    ...(capabilities || []),
+                    ...(integrations || []),
+                    ...(docs || [])
+                ];
+                renderHealthStatus(allHealth);
+                
+                // Update last refresh time
+                const now = new Date();
+                document.querySelector('footer').innerHTML = `
+                    <div>Data refreshed at ${now.toLocaleTimeString()}</div>
+                    <div class="refresh-controls">
+                        <button id="manual-refresh">Manual Refresh</button>
+                    </div>
+                `;
+                
+                // Reattach event listeners
+                document.getElementById('manual-refresh').addEventListener('click', fetchAndRenderData);
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                tokenError.textContent = 'Failed to load dashboard data';
+            }
+        }
+
+        // Initialize Dashboard
+        function initDashboard() {
+            // Check if token exists
+            const token = sessionStorage.getItem('holdfast_admin_token');
+            
+            if (!token) {
+                tokenScreen.style.display = 'flex';
+                dashboard.style.display = 'none';
+                return;
+            }
+
+            // Show dashboard
+            tokenScreen.style.display = 'none';
+            dashboard.style.display = 'block';
+            
+            // Load data
+            fetchAndRenderData();
+            
+            // Set up auto-refresh
+            setInterval(fetchAndRenderData, 60000);
+        }
+
+        // Event Listeners
+        tokenSubmit.addEventListener('click', async () => {
+            const token = tokenInput.value.trim();
+            if (!token) {
+                tokenError.textContent = 'Please enter a token';
+                return;
+            }
+            
+            // Store token and load dashboard
+            sessionStorage.setItem('holdfast_admin_token', token);
+            initDashboard();
+        });
+
+        signOutBtn.addEventListener('click', clearToken);
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initDashboard();
+        });
+    </script>
+</body>
+</html>

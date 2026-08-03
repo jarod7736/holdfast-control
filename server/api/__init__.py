@@ -1,11 +1,14 @@
 """FastAPI routes for the Holdfast control plane."""
 
 import json
+import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from server import adapters, auth, enrollment
@@ -178,5 +181,52 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
     def docs_status(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
         require_admin(authorization)
         return adapters.docs_status()
+
+    @router.get("/api/v1/plans")
+    def all_plans(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        """List plans across all devices, newest first (dashboard view)."""
+        require_admin(authorization)
+        with connection(database_path) as conn:
+            rows = conn.execute("SELECT * FROM plans ORDER BY created_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+    @router.get("/api/v1/gateway-keys")
+    def gateway_keys(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
+        require_admin(authorization)
+        with connection(database_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM gateway_keys ORDER BY minted_at DESC"
+            ).fetchall()
+            result: list[dict[str, Any]] = []
+            for row in rows:
+                result.append(
+                    {
+                        "id": row["id"],
+                        "device_id": row["device_id"],
+                        "key_alias": row["key_alias"],
+                        "models": json.loads(row["models"] or "[]"),
+                        "mcp_servers": json.loads(row["mcp_servers"] or "[]"),
+                        "minted_at": row["minted_at"],
+                    }
+                )
+        return result
+
+    @router.get("/ui")
+    def dashboard_ui() -> FileResponse:
+        # Determine web directory path
+        web_dir_str = os.environ.get("HOLDFAST_WEB_DIR")
+        if web_dir_str:
+            web_dir = Path(web_dir_str)
+        else:
+            # Fallback to default web directory relative to repo root
+            server_file = Path(__file__).resolve()
+            repo_root = server_file.parent.parent
+            web_dir = repo_root / "web"
+        
+        index_path = web_dir / "index.html"
+        if not index_path.exists():
+            raise HTTPException(status_code=404, detail="dashboard not installed")
+        
+        return FileResponse(index_path, media_type="text/html")
 
     return router
