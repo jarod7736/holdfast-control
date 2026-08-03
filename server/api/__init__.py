@@ -219,9 +219,8 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
             web_dir = Path(web_dir_str)
         else:
             # Fallback to default web directory relative to repo root
-            server_file = Path(__file__).resolve()
-            repo_root = server_file.parent.parent
-            web_dir = repo_root / "web"
+            # (this file is <repo_root>/server/api/__init__.py → parents[2]).
+            web_dir = Path(__file__).resolve().parents[2] / "web"
         
         index_path = web_dir / "index.html"
         if not index_path.exists():

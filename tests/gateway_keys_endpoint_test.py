@@ -118,18 +118,14 @@ def test_dashboard_ui_endpoint_not_found(tmp_path, monkeypatch):
 
 
 def test_dashboard_ui_endpoint_fallback_to_default(tmp_path, monkeypatch):
-    """Test that the dashboard UI falls back to the default web directory when HOLDFAST_WEB_DIR is not set."""
-    # Ensure HOLDFAST_WEB_DIR is not set
+    """Without HOLDFAST_WEB_DIR, /ui serves the repo's own web/index.html."""
     monkeypatch.delenv("HOLDFAST_WEB_DIR", raising=False)
 
     client, _ = make_client(tmp_path)
     response = client.get("/ui")
-    # This should work with the existing web directory in the repo
-    # (We can't easily create a fake web directory for this test since it's not the goal)
-    # The key test is that it doesn't error with 404 when web directory exists
-    # Let's just test it works when the actual repo web directory exists
-    if response.status_code == 200:
-        assert response.headers["content-type"].startswith("text/html")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert b"Holdfast Control" in response.content
 
 
 def test_plans_all_devices_empty(tmp_path):
