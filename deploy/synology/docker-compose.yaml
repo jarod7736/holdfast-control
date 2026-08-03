@@ -18,3 +18,5 @@ services:
       HOLDFAST_LITELLM_ADMIN_TOKEN: ${HOLDFAST_LITELLM_ADMIN_TOKEN}
     volumes:
       - ./data:/data
+      # Dashboard served from the share so UI edits don't require an image rebuild.
+      - ./web:/app/web:ro
