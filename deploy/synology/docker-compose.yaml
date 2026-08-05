@@ -16,6 +16,9 @@ services:
       HOLDFAST_ADMIN_TOKEN: ${HOLDFAST_ADMIN_TOKEN}
       HOLDFAST_LITELLM_URL: ${HOLDFAST_LITELLM_URL}
       HOLDFAST_LITELLM_ADMIN_TOKEN: ${HOLDFAST_LITELLM_ADMIN_TOKEN}
+      # JSON map of integration name -> health URL for the on-read prober.
+      # Single-quoted so the JSON's double quotes survive compose interpolation.
+      HOLDFAST_INTEGRATION_PROBES: '${HOLDFAST_INTEGRATION_PROBES}'
     volumes:
       - ./data:/data
       # Dashboard served from the share so UI edits don't require an image rebuild.

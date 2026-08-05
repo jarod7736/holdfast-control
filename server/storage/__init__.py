@@ -13,6 +13,8 @@ _ADAPTER_SEEDS: list[tuple[str, str]] = [
     ("litellm", "integration"),
     ("amd-halo", "integration"),
     ("lan-orangutan", "integration"),
+    ("lobsterboy", "integration"),
+    ("openclaw", "integration"),
     ("documentation", "integration"),
 ]
 
