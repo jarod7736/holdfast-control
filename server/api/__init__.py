@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from server import adapters, auth, enrollment
 from server.gateway import KeyMinter
+from server.prober import refresh_integrations
 from server.storage import connection
 
 
@@ -82,6 +83,10 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
                 "INSERT INTO device_reports(id, device_id, report_data, created_at) VALUES (?, ?, ?, ?)",
                 (str(uuid.uuid4()), device_id, json.dumps(request.report_data, sort_keys=True), time.time()),
             )
+            try:
+                adapters.update_capability_health(conn)
+            except Exception:
+                pass  # ingestion must stay 200
         return {"status": "accepted"}
 
     @router.post("/api/v1/devices/{device_id}/plans")
@@ -175,6 +180,10 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
     @router.get("/api/v1/integrations/status")
     def integrations_status(authorization: str | None = Header(default=None)) -> list[dict[str, Any]]:
         require_admin(authorization)
+        try:
+            refresh_integrations(database_path)
+        except Exception:
+            pass  # probe failure can't break the endpoint
         return adapters.integrations_status(database_path)
 
     @router.get("/api/v1/docs/status")

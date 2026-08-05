@@ -281,6 +281,14 @@ def report(
     status = inspector.inspect_system()
     status["device_id"] = device_id
 
+    # Capability checks
+    try:
+        from holdfastctl.checks import run_checks
+
+        status["checks"] = run_checks()
+    except Exception:  # noqa: BLE001 - catastrophic checks failure must not break reporting
+        pass
+
     token_path = config.get("token_path") or str(config_path.parent / "report.token")
     reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
     try:
