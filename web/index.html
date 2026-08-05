@@ -449,15 +449,31 @@
             </div>
         </section>
 
-        <!-- System Health Section -->
-        <section class="section">
-            <div class="section-header">
-                <h2>System Health</h2>
-            </div>
-            <div class="card-grid" id="health-container">
-                <div class="empty-state">Loading system status...</div>
-            </div>
-        </section>
+<!-- System Health Sections -->
+      <section class="section">
+          <div class="section-header">
+              <h2>Capabilities</h2>
+          </div>
+          <div class="card-grid" id="capabilities-container">
+              <div class="empty-state">Loading capabilities...</div>
+          </div>
+      </section>
+      <section class="section">
+          <div class="section-header">
+              <h2>Integrations</h2>
+          </div>
+          <div class="card-grid" id="integrations-container">
+              <div class="empty-state">Loading integrations...</div>
+          </div>
+      </section>
+      <section class="section">
+          <div class="section-header">
+              <h2>Documentation</h2>
+          </div>
+          <div class="card-grid" id="docs-container">
+              <div class="empty-state">Loading documentation status...</div>
+          </div>
+      </section>
 
         <footer>
             <div>Data refreshes every 60s</div>
@@ -478,7 +494,9 @@
         const devicesContainer = document.getElementById('devices-container');
         const gatewayKeysBody = document.getElementById('gateway-keys-body');
         const plansBody = document.getElementById('plans-body');
-        const healthContainer = document.getElementById('health-container');
+        const capabilitiesContainer = document.getElementById('capabilities-container');
+        const integrationsContainer = document.getElementById('integrations-container');
+        const docsContainer = document.getElementById('docs-container');
         const manualRefreshBtn = document.getElementById('manual-refresh');
 
         // API Base URL
@@ -654,31 +672,17 @@
             }).join('');
         }
 
-        // Render Health Status
-        function renderHealthStatus(data) {
-            if (!data || data.length === 0) {
-                healthContainer.innerHTML = '<div class="empty-state">No health data available</div>';
+        // Render Capabilities
+        function renderCapabilities(items) {
+            if (!items || items.length === 0) {
+                capabilitiesContainer.innerHTML = '<div class="empty-state">No capabilities data available</div>';
                 return;
             }
-
-            healthContainer.innerHTML = data.map(item => {
-                let statusClass = 'status-warning';
-                let statusText = item.status;
-
-                if (item.status === 'unknown') {
-                    statusClass = 'status-warning';
-                    statusText = 'unknown';
-                } else if (item.status === 'ok') {
-                    statusClass = 'status-ok';
-                    statusText = 'ok';
-                } else if (item.status === 'error') {
-                    statusClass = 'status-error';
-                    statusText = 'error';
-                } else if (item.status === 'warning') {
-                    statusClass = 'status-warning';
-                    statusText = 'warning';
-                }
-
+            capabilitiesContainer.innerHTML = items.map(item => {
+                const statusClass = item.status === 'ok' ? 'status-ok' :
+                                   item.status === 'error' ? 'status-error' :
+                                   item.status === 'warning' ? 'status-warning' : 'status-warning';
+                const statusText = item.status;
                 return `
                     <div class="card">
                         <div class="card-header">
@@ -686,9 +690,58 @@
                             <span class="status-badge ${statusClass}">${statusText}</span>
                         </div>
                         <div class="card-content">
-                            <div>Kind: ${item.kind}</div>
                             ${item.detail ? `<div>Detail: ${item.detail}</div>` : ''}
                             ${item.last_checked_at ? `<div>Checked: <span class="relative-time" title="${formatTimestamp(item.last_checked_at)}">${relativeTime(item.last_checked_at)}</span></div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render Integrations
+        function renderIntegrations(items) {
+            if (!items || items.length === 0) {
+                integrationsContainer.innerHTML = '<div class="empty-state">No integrations data available</div>';
+                return;
+            }
+            integrationsContainer.innerHTML = items.map(item => {
+                const statusClass = item.status === 'ok' ? 'status-ok' :
+                                   item.status === 'error' ? 'status-error' :
+                                   item.status === 'warning' ? 'status-warning' : 'status-warning';
+                const statusText = item.status;
+                return `
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">${item.adapter}</div>
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="card-content">
+                            ${item.detail ? `<div>Detail: ${item.detail}</div>` : ''}
+                            ${item.last_checked_at ? `<div>Checked: <span class="relative-time" title="${formatTimestamp(item.last_checked_at)}">${relativeTime(item.last_checked_at)}</span></div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render Documentation
+        function renderDocs(items) {
+            if (!items || items.length === 0) {
+                docsContainer.innerHTML = '<div class="empty-state">No documentation data available</div>';
+                return;
+            }
+            docsContainer.innerHTML = items.map(item => {
+                // Use info badge for present status (neutral)
+                const statusClass = 'status-info';
+                const statusText = item.status;
+                return `
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">${item.doc_path}</div>
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="card-content">
+                            ${item.modified_at ? `<div>Modified: <span class="relative-time" title="${formatTimestamp(item.modified_at)}">${relativeTime(item.modified_at)}</span></div>` : ''}
                         </div>
                     </div>
                 `;
@@ -714,13 +767,10 @@
                 renderGatewayKeys(gatewayKeys);
                 renderPlans(plans);
 
-                // Render health status
-                const allHealth = [
-                    ...(capabilities || []),
-                    ...(integrations || []),
-                    ...(docs || [])
-                ];
-                renderHealthStatus(allHealth);
+                // Render health sections separately
+                renderCapabilities(capabilities);
+                renderIntegrations(integrations);
+                renderDocs(docs);
                 
                 // Update last refresh time
                 const now = new Date();
