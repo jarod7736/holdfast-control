@@ -5,6 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# systemd user services get a sparse PATH; include user tool dirs so checks
+# can find opencode etc.
+Environment=PATH=%h/.opencode/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=%h/.local/bin/holdfastctl report
 # User-scoped agent: runs as the invoking user via systemctl --user.
 # It only reads local state and posts a report; no elevated privileges.

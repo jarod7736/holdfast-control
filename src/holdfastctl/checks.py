@@ -7,6 +7,7 @@ Exactly four capability keys: opencode, providers, mcp_servers, skills.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -60,6 +61,27 @@ def _count_skill_dirs() -> int:
     return total
 
 
+def _find_opencode_binary() -> str | None:
+    """Locate the opencode binary: PATH first, then well-known user locations.
+
+    systemd user timers and cron run with a sparse PATH, so probe the
+    standard install dirs as a fallback.
+    """
+    binary = shutil.which("opencode")
+    if binary:
+        return binary
+    for candidate in (
+        Path.home() / ".opencode" / "bin" / "opencode",
+        Path.home() / ".local" / "bin" / "opencode",
+    ):
+        try:
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+        except OSError:
+            continue
+    return None
+
+
 def run_checks(
     opencode_config_dir: Path | None = None,
 ) -> dict[str, dict[str, str]]:
@@ -82,12 +104,12 @@ def run_checks(
 
     # ---- opencode binary check ----
     try:
-        binary = shutil.which("opencode")
+        binary = _find_opencode_binary()
         if binary is None:
             results["opencode"] = {"status": "error", "detail": "opencode not on PATH"}
         else:
             proc = subprocess.run(
-                ["opencode", "--version"],
+                [binary, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=3,

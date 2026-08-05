@@ -106,11 +106,7 @@ class TestRunChecksOpencodeBinary:
     """opencode binary detection edge cases."""
 
     def test_opencode_error_when_binary_missing(self, monkeypatch):
-
-        def fake_which(name):
-            return None
-
-        monkeypatch.setattr("shutil.which", fake_which)
+        monkeypatch.setattr("holdfastctl.checks._find_opencode_binary", lambda: None)
         results = run_checks()
         assert results["opencode"]["status"] == "error"
         assert "not on PATH" in results["opencode"]["detail"]
