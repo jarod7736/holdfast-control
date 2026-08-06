@@ -4,6 +4,8 @@ The control plane runs in Container Manager on the DS920+, on the same Docker
 network as LiteLLM. Co-location is deliberate: the gateway speaks plain HTTP,
 so reaching it by container name keeps the key-minting credential off the LAN.
 
+The control plane is currently live and reachable at http://192.168.1.181:8200/ui.
+
 ## Prerequisites
 
 - DSM 7.2+ with Container Manager installed
@@ -95,7 +97,7 @@ cd /volume1/docker/holdfast-control && sudo docker compose up -d --build
 
 ```sh
 # API is up
-curl -s -o /dev/null -w '%{http_code}\n' http://192.168.1.181:8000/openapi.json   # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://192.168.1.181:8200/openapi.json   # 200
 
 # Migrated state survived — expect the token count from step 1
 sudo docker exec holdfast-control python -c \
@@ -107,8 +109,8 @@ sudo docker exec holdfast-control python -c \
 
 # End-to-end, no gateway needed: a scope-less code enrolls
 HOLDFAST_ADMIN_TOKEN=<token> holdfastctl enroll-code smoke-test \
-  --control-plane http://192.168.1.181:8000
-curl -s -X POST http://192.168.1.181:8000/api/v1/enroll \
+  --control-plane http://192.168.1.181:8200
+curl -s -X POST http://192.168.1.181:8200/api/v1/enroll \
   -H 'Content-Type: application/json' \
   -d '{"code":"<printed>","device_id":"smoke-test"}'
 # Expect: {"report_token": "..."} and no gateway_key
@@ -124,7 +126,7 @@ migrations. Fix that on the gateway before expecting scoped codes to enrol.
 On each enrolled device, edit `~/.config/holdfastctl/config.yaml`:
 
 ```yaml
-control_plane_url: http://192.168.1.181:8000
+control_plane_url: http://192.168.1.181:8200
 ```
 
 Then `systemctl --user restart holdfastctl-agent.timer`. Report tokens carry
