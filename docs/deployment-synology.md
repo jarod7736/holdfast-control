@@ -4,7 +4,8 @@ The control plane runs in Container Manager on the DS920+, on the same Docker
 network as LiteLLM. Co-location is deliberate: the gateway speaks plain HTTP,
 so reaching it by container name keeps the key-minting credential off the LAN.
 
-The control plane is currently live and reachable at http://192.168.1.181:8200/ui.
+The control plane is currently live and reachable at
+https://holdfast.tail1c66ec.ts.net/ui (tailnet only — no LAN publish).
 
 ## Tailnet access (added 2026-08-05)
 
@@ -23,8 +24,8 @@ the tailnet via `tailscale serve`:
 - Gotchas hit during setup: `TS_SERVE_CONFIG` crash-loops before first login
   (`${TS_CERT_DOMAIN}` unresolved), and `serve set --all` does not exist on
   image version 1.98.x — use the `serve --bg` CLI form above.
-- The LAN publish on 8200 remains temporarily for transition; removing it makes
-  the API tailnet-only.
+- The LAN publish on 8200 was removed 2026-08-05: the API and dashboard are
+  tailnet-only. New devices must run Tailscale before they can enroll.
 
 ## Prerequisites
 
@@ -116,8 +117,8 @@ cd /volume1/docker/holdfast-control && sudo docker compose up -d --build
 ## 6. Verify
 
 ```sh
-# API is up
-curl -s -o /dev/null -w '%{http_code}\n' http://192.168.1.181:8200/openapi.json   # 200
+# API is up (from any tailnet device)
+curl -s -o /dev/null -w '%{http_code}\n' https://holdfast.tail1c66ec.ts.net/openapi.json   # 200
 
 # Migrated state survived — expect the token count from step 1
 sudo docker exec holdfast-control python -c \
@@ -129,8 +130,8 @@ sudo docker exec holdfast-control python -c \
 
 # End-to-end, no gateway needed: a scope-less code enrolls
 HOLDFAST_ADMIN_TOKEN=<token> holdfastctl enroll-code smoke-test \
-  --control-plane http://192.168.1.181:8200
-curl -s -X POST http://192.168.1.181:8200/api/v1/enroll \
+  --control-plane https://holdfast.tail1c66ec.ts.net
+curl -s -X POST https://holdfast.tail1c66ec.ts.net/api/v1/enroll \
   -H 'Content-Type: application/json' \
   -d '{"code":"<printed>","device_id":"smoke-test"}'
 # Expect: {"report_token": "..."} and no gateway_key
@@ -145,10 +146,12 @@ the litellm container) before debugging the control plane.
 
 ## 7. Point devices at the new host
 
-On each enrolled device, edit `~/.config/holdfastctl/config.yaml`:
+Prerequisite for new devices: **join the tailnet first** (`tailscale up`) — the
+control plane has no LAN listener. On each enrolled device, edit
+`~/.config/holdfastctl/config.yaml`:
 
 ```yaml
-control_plane_url: http://192.168.1.181:8200
+control_plane_url: https://holdfast.tail1c66ec.ts.net
 ```
 
 Then `systemctl --user restart holdfastctl-agent.timer`. Report tokens carry

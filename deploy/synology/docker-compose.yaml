@@ -13,8 +13,9 @@ services:
     build: .
     container_name: holdfast-control-plane
     restart: unless-stopped
-    ports:
-      - "0.0.0.0:8200:8000"  # TODO: Remove after cutover to tailnet
+    # No LAN port publish: API + dashboard are tailnet-only via the sidecar
+    # (https://holdfast.tail1c66ec.ts.net). New devices must join the tailnet
+    # before they can enroll.
     environment:
       HOLDFAST_ADMIN_TOKEN: ${HOLDFAST_ADMIN_TOKEN}
       HOLDFAST_LITELLM_URL: ${HOLDFAST_LITELLM_URL}
