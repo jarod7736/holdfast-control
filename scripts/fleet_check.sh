@@ -10,7 +10,7 @@ set +a
 ADMIN="$(op read 'op://holdfast-automation/holdfast-control admin token/credential' | tr -d '\n')"
 
 # Fetch devices from API
-DEVICES_JSON=$(curl -s -k --max-time 10 -H "Authorization: Bearer $ADMIN" http://192.168.1.181:8200/api/v1/devices)
+DEVICES_JSON=$(curl -s --max-time 10 -H "Authorization: Bearer $ADMIN" https://holdfast.tail1c66ec.ts.net/api/v1/devices)
 
 # Parse devices using Python
 python3 -c "
@@ -87,10 +87,10 @@ for device in devices:
             config_path = os.path.expanduser('~/.config/holdfastctl/config.yaml')
             with open(config_path, 'r') as f:
                 content = f.read()
-                if 'control_plane_url: http://192.168.1.181:8200' in content:
-                    print('  PASS: config points at :8200')
+                if 'control_plane_url: https://holdfast.tail1c66ec.ts.net' in content:
+                    print('  PASS: config points at Tailscale URL')
                 else:
-                    print('  FAIL: config does not point at :8200')
+                    print('  FAIL: config does not point at Tailscale URL')
                     all_passed = False
         except Exception as e:
             print(f'  FAIL: Error checking local config: {e}')
@@ -122,13 +122,13 @@ for device in devices:
             # args and the remote shell mis-parses them.
             result = subprocess.run(
                 ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host,
-                 'grep -q \"control_plane_url: http://192.168.1.181:8200\" ~/.config/holdfastctl/config.yaml'],
+                 'grep -q \"control_plane_url: https://holdfast.tail1c66ec.ts.net\" ~/.config/holdfastctl/config.yaml'],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
-                print('  PASS: config points at :8200')
+                print('  PASS: config points at Tailscale URL')
             else:
-                print('  FAIL: config does not point at :8200')
+                print('  FAIL: config does not point at Tailscale URL')
                 all_passed = False
         except Exception as e:
             print(f'  FAIL: SSH connection failed or error checking remote config: {e}')

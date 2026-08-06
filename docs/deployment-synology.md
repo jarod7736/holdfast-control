@@ -6,6 +6,26 @@ so reaching it by container name keeps the key-minting credential off the LAN.
 
 The control plane is currently live and reachable at http://192.168.1.181:8200/ui.
 
+## Tailnet access (added 2026-08-05)
+
+A Tailscale sidecar container (`holdfast-tailscale`, see
+`deploy/synology/docker-compose.yaml`) exposes the control plane as HTTPS on
+the tailnet via `tailscale serve`:
+
+- **URL: `https://holdfast.tail1c66ec.ts.net`** (dashboard at `/ui`, API on the
+  same port 443). Enrolled devices use this as `control_plane_url` — enrollment
+  key material no longer crosses the LAN in cleartext.
+- The node authenticates with a reusable auth key (1Password:
+  `holdfast-automation/tailscale-authkey`, in the NAS `.env` as `TS_AUTHKEY`),
+  so it re-joins the tailnet automatically across container restarts.
+- The serve proxy was applied once by hand and persists in the `ts-state`
+  volume: `docker exec holdfast-tailscale tailscale serve --bg http://control-plane:8000`
+- Gotchas hit during setup: `TS_SERVE_CONFIG` crash-loops before first login
+  (`${TS_CERT_DOMAIN}` unresolved), and `serve set --all` does not exist on
+  image version 1.98.x — use the `serve --bg` CLI form above.
+- The LAN publish on 8200 remains temporarily for transition; removing it makes
+  the API tailnet-only.
+
 ## Prerequisites
 
 - DSM 7.2+ with Container Manager installed

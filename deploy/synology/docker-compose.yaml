@@ -5,13 +5,16 @@
 #   HOLDFAST_LITELLM_URL            — http://192.168.1.181:4000
 #   HOLDFAST_LITELLM_ADMIN_TOKEN    — key-management-scoped (1Password: holdfast-automation/litellm-key-admin)
 # Dashboard: http://192.168.1.181:8200/ui (token prompt; API on the same port).
+# Tailscale service exposes the control plane over HTTPS on the tailnet.
+#   Initial setup: run with TS_AUTHKEY set to an auth key from login.tailscale.com
+#   Subsequent runs: can omit TS_AUTHKEY to use the existing node key
 services:
   control-plane:
     build: .
     container_name: holdfast-control-plane
     restart: unless-stopped
     ports:
-      - "0.0.0.0:8200:8000"
+      - "0.0.0.0:8200:8000"  # TODO: Remove after cutover to tailnet
     environment:
       HOLDFAST_ADMIN_TOKEN: ${HOLDFAST_ADMIN_TOKEN}
       HOLDFAST_LITELLM_URL: ${HOLDFAST_LITELLM_URL}
@@ -23,3 +26,29 @@ services:
       - ./data:/data
       # Dashboard served from the share so UI edits don't require an image rebuild.
       - ./web:/app/web:ro
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: holdfast-tailscale
+    restart: unless-stopped
+    environment:
+      TS_HOSTNAME: holdfast
+      TS_STATE_DIR: /var/lib/tailscale
+      # Reusable auth key (1Password: holdfast-automation/tailscale-authkey) makes
+      # the node self-healing across restarts. Interactive login URLs rotate and
+      # the node loses its tailnet identity if the container restarts before
+      # state is written — do not rely on interactive login for this container.
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY in .env}
+      TS_USERSPACE: false
+    volumes:
+      - ts-state:/var/lib/tailscale
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    # After first up, expose the control plane on the tailnet (persists in ts-state):
+    #   docker exec holdfast-tailscale tailscale serve --bg http://control-plane:8000
+    # (No TS_SERVE_CONFIG: on this image version an unresolved ${TS_CERT_DOMAIN}
+    # pre-login crash-loops the container, and `serve set --all` does not exist.)
+volumes:
+  ts-state:
