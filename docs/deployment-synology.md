@@ -116,10 +116,12 @@ curl -s -X POST http://192.168.1.181:8200/api/v1/enroll \
 # Expect: {"report_token": "..."} and no gateway_key
 ```
 
-Key minting additionally requires LiteLLM's `/key/generate` to work. As of
-2026-08-02 that endpoint returns 500 (`LiteLLM_VerificationToken.key_type does
-not exist`) because the container image was updated without applying its Prisma
-migrations. Fix that on the gateway before expecting scoped codes to enrol.
+Key minting additionally requires LiteLLM's `/key/generate` to work. Verified
+working 2026-08-05: a scoped code (`--models or-cheap --mcp github`) enrolls
+with `gateway_key` and `gateway_key_alias` in the response. If minting ever
+returns 500 after a LiteLLM image update, apply its Prisma migrations on the
+gateway (`prisma db push --schema /app/schema.prisma --skip-generate` inside
+the litellm container) before debugging the control plane.
 
 ## 7. Point devices at the new host
 
