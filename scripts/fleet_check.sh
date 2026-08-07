@@ -18,10 +18,49 @@ import json
 import sys
 import time
 import os
+import subprocess
+
+CONFIG_PATH = os.path.expanduser('~/.config/holdfastctl/config.yaml')
+TAILNET_LINE = 'control_plane_url: https://holdfast.tail1c66ec.ts.net'
+
+# SSH aliases as defined in ~/.ssh/config.
+SSH_HOSTS = {
+    'amd-halo': 'amd-halo',
+    'jarod7736-laptop': 'jarod7736-laptop',
+    'lobsterboy': 'lobsterboy',
+}
+
+def local_device_id():
+    # Which device is this machine? Decides local-vs-ssh below, so the script
+    # stays correct wherever it is run from.
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            for line in f:
+                if line.startswith('device_id:'):
+                    return line.split(':', 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+def ssh_run(host, remote_cmd):
+    # Returns (ok, stdout, unreachable). A non-empty 'unreachable' means ssh
+    # itself failed, which is not the same as the check failing.
+    try:
+        r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host, remote_cmd],
+                           capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return (False, '', 'ssh timed out')
+    except Exception as e:
+        return (False, '', 'ssh error: {}'.format(e))
+    if r.returncode == 255:
+        detail = r.stderr.strip().splitlines()
+        return (False, '', detail[-1] if detail else 'unreachable')
+    return (r.returncode == 0, r.stdout, '')
 
 devices = json.loads(sys.argv[1])
 now = int(time.time())
 all_passed = True
+THIS_DEVICE = local_device_id()
 
 # Process each device
 for device in devices:
@@ -51,88 +90,58 @@ for device in devices:
     
     print(f'Host Check for device {device_id}:')
     
-    # Determine host for SSH connection
-    host = None
-    if device_id == 'amd-halo':
-        host = 'local'
-    elif device_id == 'jarod7736-laptop':
-        host = 'jarod7736-laptop'
-    elif device_id == 'lobsterboy':
-        host = 'lobsterboy-local'
-    
-    if host is None:
-        print('  SKIP: No SSH mapping for this device')
-    elif host == 'local':
-        # Local machine - run commands directly
+    host = SSH_HOSTS.get(device_id)
+
+    if device_id == THIS_DEVICE:
+        # This machine - run commands directly, no ssh.
         try:
-            # Check if holdfastctl-agent.timer is active
-            result = None
-            import subprocess
-            try:
-                result = subprocess.run(['systemctl', '--user', 'is-active', 'holdfastctl-agent.timer'], 
-                                       capture_output=True, text=True, timeout=10)
-            except:
-                pass
-            if result and result.returncode == 0 and 'active' in result.stdout:
+            result = subprocess.run(['systemctl', '--user', 'is-active', 'holdfastctl-agent.timer'],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and 'active' in result.stdout:
                 print('  PASS: holdfastctl-agent.timer is active')
             else:
                 print('  FAIL: holdfastctl-agent.timer is not active')
                 all_passed = False
         except Exception as e:
-            print(f'  FAIL: Error checking local host: {e}')
+            print(f'  ERROR: could not check local timer - {e}')
             all_passed = False
-            
-        # Check config file content for amd-halo
+
         try:
-            config_path = os.path.expanduser('~/.config/holdfastctl/config.yaml')
-            with open(config_path, 'r') as f:
-                content = f.read()
-                if 'control_plane_url: https://holdfast.tail1c66ec.ts.net' in content:
+            with open(CONFIG_PATH, 'r') as f:
+                if TAILNET_LINE in f.read():
                     print('  PASS: config points at Tailscale URL')
                 else:
                     print('  FAIL: config does not point at Tailscale URL')
                     all_passed = False
         except Exception as e:
-            print(f'  FAIL: Error checking local config: {e}')
+            print(f'  ERROR: could not read local config - {e}')
             all_passed = False
+    elif host is None:
+        print('  SKIP: No SSH mapping for this device')
     else:
-        # SSH to remote host
-        try:
-            # Check if holdfastctl-agent.timer is active on remote host
-            result = None
-            import subprocess
-            try:
-                result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host, 
-                                       'systemctl --user is-active holdfastctl-agent.timer'], 
-                                       capture_output=True, text=True, timeout=10)
-            except:
-                pass
-            if result and result.returncode == 0 and 'active' in result.stdout:
+        ok, out, unreachable = ssh_run(host, 'systemctl --user is-active holdfastctl-agent.timer')
+        if unreachable:
+            # Do not claim the timer is down when we never got to look at it.
+            print(f'  ERROR: could not reach {host} - {unreachable}')
+            all_passed = False
+        else:
+            if ok and 'active' in out:
                 print('  PASS: holdfastctl-agent.timer is active')
             else:
                 print('  FAIL: holdfastctl-agent.timer is not active')
                 all_passed = False
-        except Exception as e:
-            print(f'  FAIL: SSH connection failed or error checking host: {e}')
-            all_passed = False
-            
-        # Check config file content on remote host
-        try:
-            # Remote command must be a SINGLE ssh argument — ssh joins multiple
+
+            # Remote command must be a SINGLE ssh argument - ssh joins multiple
             # args and the remote shell mis-parses them.
-            result = subprocess.run(
-                ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host,
-                 'grep -q \"control_plane_url: https://holdfast.tail1c66ec.ts.net\" ~/.config/holdfastctl/config.yaml'],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
+            ok, _, unreachable = ssh_run(host, 'grep -q \"control_plane_url: https://holdfast.tail1c66ec.ts.net\" ~/.config/holdfastctl/config.yaml')
+            if unreachable:
+                print(f'  ERROR: could not reach {host} - {unreachable}')
+                all_passed = False
+            elif ok:
                 print('  PASS: config points at Tailscale URL')
             else:
                 print('  FAIL: config does not point at Tailscale URL')
                 all_passed = False
-        except Exception as e:
-            print(f'  FAIL: SSH connection failed or error checking remote config: {e}')
-            all_passed = False
     
     print()  # Blank line between devices
 
