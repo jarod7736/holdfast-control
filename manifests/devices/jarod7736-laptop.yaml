@@ -6,7 +6,7 @@ capabilities:
     required: true
     config_profile: personal-development
     providers: [opencode-cloud, amd-halo, openrouter]
-    mcp_servers: [github, halo-commander, nas-files]
+    mcp_servers: [github, halo-commander, playwright]
   network:
     hostname: jarod7736-laptop
     dns_zone: holdfast.lan
@@ -14,7 +14,7 @@ capabilities:
   gateway_access:
     gateway_url: http://192.168.1.181:4000
     models: [or-opus, or-gpt, or-coder, or-cheap]
-    mcp_servers: [github, halo-commander, nas-files]
+    mcp_servers: [github, halo-commander, playwright]
 credentials:
   - id: litellm-jarod-laptop
     reference: op://holdfast-lan/opencode-litellm-jarod-laptop-api-key/credential
