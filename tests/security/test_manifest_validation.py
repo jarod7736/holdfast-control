@@ -315,7 +315,106 @@ def test_catalog_path_validation():
     """Test catalog path validation"""
     # This test would apply to catalog files
 
-def test_catalog_validation():
-    """Test catalog file validation"""
-    # This would test catalog validation specifically
+def test_catalog_validation_checks_mcp_servers_in_any_catalog_file(tmp_path):
+    """A malformed mcp-server entry is caught whichever catalog file holds it.
+
+    credentials.yaml is the file loaded at runtime, so a gap there is the one
+    that matters most.
+    """
+    from holdfastctl.validate import validate_catalog_file
+
+    body = """
+credentials: []
+mcp-servers:
+  - id: github
+    url: http://192.168.1.181:4000/mcp/github
+    bogus_field: boom
+"""
+    for filename in ("credentials.yaml", "mcp-servers.yaml", "providers.yaml"):
+        p = tmp_path / filename
+        p.write_text(body)
+        errors = validate_catalog_file(p)
+        assert errors, f"{filename}: malformed mcp-server entry should be rejected"
+        assert "extra" in " ".join(errors).lower(), f"{filename}: got {errors}"
+
+
+def test_catalog_validation_checks_providers_in_any_catalog_file(tmp_path):
+    """A malformed provider entry is caught whichever catalog file holds it."""
+    from holdfastctl.validate import validate_catalog_file
+
+    body = """
+credentials: []
+providers:
+  - id: litellm
+    type: openai-compatible
+    base_url: http://192.168.1.181:4000/v1
+    bogus_field: boom
+"""
+    for filename in ("credentials.yaml", "providers.yaml"):
+        p = tmp_path / filename
+        p.write_text(body)
+        errors = validate_catalog_file(p)
+        assert errors, f"{filename}: malformed provider entry should be rejected"
+
+
+def test_is_catalog_file_recognizes_any_yaml_in_catalogs_dir(tmp_path):
+    """A newly added catalog file must not silently bypass catalog validation.
+
+    Routing by a hardcoded filename list sends unknown catalogs to
+    validate_manifest_file, which skips structural checks for files without a
+    device/profile key - so they pass vacuously.
+    """
+    from holdfastctl.validate import is_catalog_file
+
+    catalogs = tmp_path / "catalogs"
+    catalogs.mkdir()
+    new_catalog = catalogs / "models.yaml"
+    new_catalog.write_text("models: []\n")
+    assert is_catalog_file(new_catalog)
+
+    devices = tmp_path / "devices"
+    devices.mkdir()
+    device = devices / "laptop.yaml"
+    device.write_text("device: {id: x, profile: y}\n")
+    assert not is_catalog_file(device)
+
+
+def test_catalog_validation_accepts_builtin_provider(tmp_path):
+    """`builtin` and `note` are real provider fields, so the schema must permit them.
+
+    generate_opencode_plan reads provider.get("builtin") to skip providers that
+    connect via auth.json rather than opencode.json, so rejecting the field would
+    make the schema contradict working code.
+    """
+    from holdfastctl.validate import validate_catalog_file
+
+    body = """
+providers:
+  - id: opencode-cloud
+    type: opencode
+    builtin: true
+    base_url: https://opencode.ai/zen/v1
+    note: Built-in provider; key stored in auth.json
+"""
+    p = tmp_path / "credentials.yaml"
+    p.write_text(body)
+    assert validate_catalog_file(p) == []
+
+
+def test_catalog_validation_accepts_well_formed_entries(tmp_path):
+    """The real catalog shape validates cleanly, so the check is not just failing everything."""
+    from holdfastctl.validate import validate_catalog_file
+
+    body = """
+credentials:
+  - id: litellm-jarod-laptop
+    reference: op://holdfast-lan/opencode-litellm-jarod-laptop-api-key/credential
+    inject_as: LITELLM_API_KEY
+mcp-servers:
+  - id: github
+    url: http://192.168.1.181:4000/mcp/github
+"""
+    p = tmp_path / "credentials.yaml"
+    p.write_text(body)
+    assert validate_catalog_file(p) == []
 

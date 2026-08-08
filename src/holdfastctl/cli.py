@@ -1,6 +1,7 @@
 """Command-line interface for holdfastctl."""
 
 import json
+import logging
 import socket
 import subprocess
 import sys
@@ -9,7 +10,13 @@ from typing import Any
 
 import typer
 
+from holdfastctl.validate import validate as _validate
+
 app = typer.Typer(help="Holdfast Control - configuration management for home lab devices")
+
+# validate is defined on validate.py's own Typer app; register it here so it is
+# reachable from the main CLI rather than existing only as an unmounted command.
+app.command()(_validate)
 
 
 @app.callback()
@@ -286,8 +293,8 @@ def report(
         from holdfastctl.checks import run_checks
 
         status["checks"] = run_checks()
-    except Exception:  # noqa: BLE001 - catastrophic checks failure must not break reporting
-        pass
+    except Exception:  # catastrophic checks failure must not break reporting
+        logging.getLogger(__name__).exception("capability checks failed; reporting without them")
 
     token_path = config.get("token_path") or str(config_path.parent / "report.token")
     reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)

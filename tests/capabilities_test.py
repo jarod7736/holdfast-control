@@ -196,6 +196,109 @@ class TestOpencodeAdapter:
         assert plans == []
 
 
+class TestDefaultMcpProbe:
+    """The real probe parses an MCP initialize response off the wire.
+
+    Every other probe test injects a fake, so this is the only coverage of the
+    parsing itself.
+    """
+
+    def fake_post(self, monkeypatch, status: int, text: str):
+        import requests
+
+        class Response:
+            status_code = status
+
+        Response.text = text
+        monkeypatch.setattr(requests, "post", lambda *a, **k: Response())
+
+    def sse(self, server_info: str) -> str:
+        return (
+            'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":'
+            '{"capabilities":{"tools":{"listChanged":false}},'
+            f'"serverInfo":{server_info}}}}}\n\n'
+        )
+
+    def test_extracts_server_name(self, monkeypatch):
+        from holdfastctl.capabilities import default_mcp_probe
+
+        self.fake_post(monkeypatch, 200, self.sse('{"name":"github","version":"1.0.0"}'))
+        assert default_mcp_probe("http://gw/mcp/github", "sk-x") == (200, "github")
+
+    def test_extracts_server_name_when_nested_object_precedes_it(self, monkeypatch):
+        """serverInfo may carry a nested object before `name`."""
+        from holdfastctl.capabilities import default_mcp_probe
+
+        self.fake_post(monkeypatch, 200, self.sse('{"meta":{"a":1},"name":"github"}'))
+        assert default_mcp_probe("http://gw/mcp/github", "sk-x") == (200, "github")
+
+    def test_non_200_reports_status_without_name(self, monkeypatch):
+        from holdfastctl.capabilities import default_mcp_probe
+
+        self.fake_post(monkeypatch, 401, '{"detail":"Authentication Error"}')
+        assert default_mcp_probe("http://gw/mcp/github/mcp", "sk-x") == (401, None)
+
+    def test_transport_failure_returns_none(self, monkeypatch):
+        import requests
+
+        from holdfastctl.capabilities import default_mcp_probe
+
+        def boom(*a, **k):
+            raise requests.RequestException("no route to host")
+
+        monkeypatch.setattr(requests, "post", boom)
+        assert default_mcp_probe("http://gw/mcp/github", "sk-x") is None
+
+
+class TestOpencodeMcpProbe:
+    """Configured MCP URLs are probed live so a URL that does not select its server is caught.
+
+    Covers the two ways a LiteLLM gateway URL fails: a path that no MCP route
+    matches (rejected outright), and a path whose alias does not match, which
+    returns 200 from the aggregate gateway under a different server name.
+    """
+
+    def write_config(self, tmp_path: Path, url: str) -> None:
+        (tmp_path / "opencode.json").write_text(
+            json.dumps({"provider": {}, "mcp": {"github": {"url": url}}})
+        )
+
+    def context_with_probe(self, tmp_path: Path, result):
+        context = make_context(tmp_path, env={"LITELLM_API_KEY": "sk-test"})
+        context.credentials = []
+        context.catalog = {"providers": [], "mcp-servers": []}
+        context.mcp_probe = lambda url, key: result
+        return context
+
+    def reconcile(self, context):
+        return ADAPTERS["opencode"].reconcile({"providers": [], "mcp_servers": []}, context)
+
+    def test_matching_server_name_no_drift(self, tmp_path):
+        self.write_config(tmp_path, "http://gw:4000/mcp/github")
+        plans = self.reconcile(self.context_with_probe(tmp_path, (200, "github")))
+        assert plans == []
+
+    def test_mismatched_server_name_plans_repair(self, tmp_path):
+        """A hyphenated or unknown alias returns 200 as the aggregate gateway."""
+        self.write_config(tmp_path, "http://gw:4000/mcp/git-hub")
+        plans = self.reconcile(self.context_with_probe(tmp_path, (200, "litellm-mcp-server")))
+        assert [p.target for p in plans] == ["mcp_server_url:github"]
+        assert "litellm-mcp-server" in plans[0].description
+
+    def test_non_200_plans_repair(self, tmp_path):
+        """A trailing /mcp segment matches no route and is rejected."""
+        self.write_config(tmp_path, "http://gw:4000/mcp/github/mcp")
+        plans = self.reconcile(self.context_with_probe(tmp_path, (401, None)))
+        assert [p.target for p in plans] == ["mcp_server_url:github"]
+        assert "401" in plans[0].description
+
+    def test_probe_failure_does_not_fabricate_drift(self, tmp_path):
+        """A transport failure is unknown state, not drift."""
+        self.write_config(tmp_path, "http://gw:4000/mcp/github")
+        plans = self.reconcile(self.context_with_probe(tmp_path, None))
+        assert plans == []
+
+
 class TestReconcileDevice:
     """reconcile_device loads a manifest and dispatches every declared capability."""
 

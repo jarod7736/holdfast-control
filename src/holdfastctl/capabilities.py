@@ -21,10 +21,69 @@ from holdfastctl.reconcile import (
     ConfigurationPlan,
     generate_opencode_plan,
     load_current_opencode_state,
+    normalize_id,
 )
 
 Resolver = Callable[[str], str | None]
 HttpGet = Callable[..., tuple[int, Any] | None]
+#: (url, api_key) -> (status, reported server name), or None on transport failure.
+McpProbe = Callable[[str, str | None], tuple[int, str | None] | None]
+
+def _server_name_from_response(text: str) -> str | None:
+    """Pull result.serverInfo.name out of an initialize response.
+
+    Handles both a plain JSON body and the SSE framing (`data: {...}`) the
+    LiteLLM gateway replies with.
+    """
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("data:"):
+            line = line[len("data:") :].strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        result = payload.get("result")
+        server_info = result.get("serverInfo") if isinstance(result, dict) else None
+        name = server_info.get("name") if isinstance(server_info, dict) else None
+        if name:
+            return str(name)
+    return None
+
+
+def default_mcp_probe(url: str, api_key: str | None) -> tuple[int, str | None] | None:
+    """POST an MCP `initialize` and report (status, the server name it identifies as).
+
+    Returns None on transport failure so an unreachable network is never read as
+    drift. A gateway URL whose path matches no MCP route is rejected outright;
+    one whose alias does not match answers 200 under a different server name.
+    """
+    import requests
+
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "holdfastctl", "version": "1"},
+        },
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+    except requests.RequestException:
+        return None
+    if response.status_code != 200:
+        return response.status_code, None
+    return response.status_code, _server_name_from_response(response.text)
 
 
 def default_resolve_host(fqdn: str) -> str | None:
@@ -64,6 +123,7 @@ class ReconcileContext:
     env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))
     resolve_host: Resolver = default_resolve_host
     http_get: HttpGet = default_http_get
+    mcp_probe: McpProbe = default_mcp_probe
 
 
 def _sha256_hex(text: str) -> str:
@@ -109,7 +169,43 @@ class OpencodeAdapter:
             "manifest_commit": context.manifest_commit,
         }
         current = load_current_opencode_state(context.opencode_config_dir)
-        return generate_opencode_plan(current, desired_state)
+        plans = generate_opencode_plan(current, desired_state)
+        plans.extend(self._probe_mcp_urls(current, context))
+        return plans
+
+    def _probe_mcp_urls(self, current: dict[str, Any], context: ReconcileContext) -> list[ConfigurationPlan]:
+        """Check that each configured MCP URL actually reaches the server it names.
+
+        A URL can be reachable and still be wrong: an alias the gateway does not
+        recognize answers 200 as the aggregate gateway, exposing a different tool
+        set under a name that is not the one configured.
+        """
+        plans: list[ConfigurationPlan] = []
+        api_key = context.env.get("LITELLM_API_KEY")
+        for name, entry in current["mcp_servers"].items():
+            url = entry.get("url", "")
+            if not url:
+                continue
+            result = context.mcp_probe(url, api_key)
+            if result is None:
+                continue  # probe failure is unknown state, not drift
+            status, server_name = result
+            if status != 200:
+                description = f"MCP server '{name}' at {url} returned HTTP {status} - URL matches no gateway MCP route"
+            elif server_name and normalize_id(server_name) != normalize_id(name):
+                description = f"MCP server '{name}' at {url} reports '{server_name}' - URL does not select this server"
+            else:
+                continue
+            plans.append(
+                _plan(
+                    context,
+                    action="repair",
+                    target=f"mcp_server_url:{name}",
+                    description=description,
+                    state={"name": name, "url": url, "status": status, "server_name": server_name},
+                )
+            )
+        return plans
 
 
 class NetworkAdapter:

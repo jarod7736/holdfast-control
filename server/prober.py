@@ -1,12 +1,15 @@
 """Lightweight HTTP probes for integration health rows."""
 
 import json
+import logging
 import os
 import time
 from urllib import request
 from urllib.error import URLError
 
 from server.storage import connection
+
+logger = logging.getLogger(__name__)
 
 _DEVICE_FRESHNESS_SECONDS = 1800
 
@@ -17,9 +20,12 @@ def _parse_probes_env() -> dict[str, str]:
     if not raw:
         return {}
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): str(v) for k, v in parsed.items()}
 
 
 def _http_get(url: str, timeout: float = 3.0) -> tuple[bool, str]:
@@ -36,7 +42,7 @@ def _http_get(url: str, timeout: float = 3.0) -> tuple[bool, str]:
     except URLError as exc:
         reason = str(exc.reason) if exc.reason else str(exc)
         return False, reason
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is returned as the probe detail
         return False, str(exc)
 
 
@@ -108,5 +114,5 @@ def refresh_integrations(database_path: str, ttl_seconds: int = 120) -> None:
                     "WHERE adapter = ? AND kind = ?",
                     (new_status, new_detail, new_checked, adapter, "integration"),
                 )
-            except Exception:
-                pass  # safety net — never break the endpoint
+            except Exception:  # safety net, never break the endpoint
+                logger.exception("failed to update adapter_health row for %s", adapter)

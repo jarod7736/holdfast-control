@@ -11,6 +11,33 @@ from holdfastctl.cli import app
 runner = CliRunner()
 
 
+class TestValidateCommand:
+    """The validate command must be reachable from the main CLI.
+
+    validate.py defines the command on its own Typer app; if that app is never
+    mounted, the validator exists but can never be run.
+    """
+
+    def test_validate_appears_in_help(self):
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "validate" in result.output
+
+    def test_validate_accepts_the_repo_manifests(self):
+        result = runner.invoke(app, ["validate", "manifests"])
+        assert result.exit_code == 0, result.output
+
+    def test_validate_rejects_a_malformed_catalog(self, tmp_path):
+        catalogs = tmp_path / "catalogs"
+        catalogs.mkdir()
+        (catalogs / "credentials.yaml").write_text(
+            "mcp-servers:\n  - id: x\n    url: http://y\n    bogus_field: boom\n"
+        )
+        result = runner.invoke(app, ["validate", str(tmp_path)])
+        assert result.exit_code == 1, result.output
+        assert "validation" in result.output.lower()
+
+
 class TestDoctorCommand:
     """Test cases for the doctor command."""
 

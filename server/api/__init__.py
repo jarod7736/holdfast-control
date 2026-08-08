@@ -1,6 +1,7 @@
 """FastAPI routes for the Holdfast control plane."""
 
 import json
+import logging
 import os
 import time
 import uuid
@@ -15,6 +16,8 @@ from server import adapters, auth, enrollment
 from server.gateway import KeyMinter
 from server.prober import refresh_integrations
 from server.storage import connection
+
+logger = logging.getLogger(__name__)
 
 
 class EnrollmentCodeRequest(BaseModel):
@@ -85,8 +88,8 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
             )
             try:
                 adapters.update_capability_health(conn)
-            except Exception:
-                pass  # ingestion must stay 200
+            except Exception:  # ingestion must stay 200 whatever the cause
+                logger.exception("capability health update failed for device %s", device_id)
         return {"status": "accepted"}
 
     @router.post("/api/v1/devices/{device_id}/plans")
@@ -182,8 +185,8 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
         require_admin(authorization)
         try:
             refresh_integrations(database_path)
-        except Exception:
-            pass  # probe failure can't break the endpoint
+        except Exception:  # a probe failure must not break the endpoint
+            logger.exception("integration probe refresh failed")
         return adapters.integrations_status(database_path)
 
     @router.get("/api/v1/docs/status")

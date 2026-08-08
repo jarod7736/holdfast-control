@@ -1,17 +1,15 @@
 """Tests for capability health recomputation and the integrations prober."""
 
 import json
+import logging
 import sqlite3
 import time
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from server import create_app
-from server.adapters import update_capability_health
-from server.prober import refresh_integrations, _http_get, _parse_probes_env
-
+from server.prober import _parse_probes_env, refresh_integrations
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -145,7 +143,6 @@ def test_old_style_report_no_checks_unchanged(tmp_path):
         conn.execute("UPDATE adapter_health SET status = 'ok', last_checked_at = 1000.0 WHERE adapter = 'opencode' AND kind = 'capability'")
         conn.commit()
 
-    old = time.time()
     token = enroll_device(client, "amd-halo")
     client.post(
         "/api/v1/devices/amd-halo/reports",
@@ -189,7 +186,7 @@ def test_url_probe_ok(tmp_path, monkeypatch):
     db = tmp_path / "db.sqlite"
     seed_adapter_health(db)
 
-    import server.prober as prober
+    from server import prober
     calls: list[str] = []
     monkeypatch.setattr(prober, "_http_get", lambda url, timeout=3.0: (calls.append(url), (True, "HTTP 200"))[1])
 
@@ -209,7 +206,7 @@ def test_url_probe_error(tmp_path, monkeypatch):
     db = tmp_path / "db.sqlite"
     seed_adapter_health(db)
 
-    import server.prober as prober
+    from server import prober
     monkeypatch.setattr(prober, "_http_get", lambda url, timeout=3.0: (False, "HTTP 500"))
 
     refresh_integrations(str(db), ttl_seconds=0)
@@ -231,7 +228,7 @@ def test_litellm_fallback(tmp_path, monkeypatch):
     db = tmp_path / "db.sqlite"
     seed_adapter_health(db)
 
-    import server.prober as prober
+    from server import prober
     calls: list[str] = []
     monkeypatch.setattr(prober, "_http_get", lambda url, timeout=3.0: (calls.append(url), (True, "HTTP 200"))[1])
 
@@ -260,7 +257,7 @@ def test_litellm_env_does_not_mask_device_freshness(tmp_path, monkeypatch):
         )
         conn.commit()
 
-    import server.prober as prober
+    from server import prober
     monkeypatch.setattr(prober, "_http_get", lambda url, timeout=3.0: (True, "HTTP 200"))
 
     refresh_integrations(str(db), ttl_seconds=0)
@@ -445,10 +442,15 @@ def test_reports_endpoint_invokes_capability_update(tmp_path):
     assert cap_map["opencode"]["status"] == "ok"
 
 
-def test_integrations_endpoint_invokes_prober(tmp_path):
-    """GET /api/v1/integrations/status triggers refresh_integrations."""
-    import server.prober as prober
-    original_refresh = prober.refresh_integrations
+def test_integrations_endpoint_invokes_prober(tmp_path, monkeypatch):
+    """GET /api/v1/integrations/status triggers refresh_integrations.
+
+    server.api binds the name with `from server.prober import refresh_integrations`,
+    so the patch must target server.api - patching server.prober leaves the
+    endpoint calling the real prober.
+    """
+    import server.api
+
     called = []
 
     def mock_refresh(db_path, ttl_seconds=120):
@@ -461,53 +463,49 @@ def test_integrations_endpoint_invokes_prober(tmp_path):
             )
             conn.commit()
 
-    prober.refresh_integrations = mock_refresh
-    try:
-        client, db = make_client(tmp_path)
-        seed_adapter_health(db)
+    monkeypatch.setattr(server.api, "refresh_integrations", mock_refresh)
 
-        # Reset last_checked_at to 0 to ensure prober updates them
-        with _connect(db) as conn:
-            conn.execute("UPDATE adapter_health SET last_checked_at = 0 WHERE kind = 'integration'")
-            conn.commit()
+    client, db = make_client(tmp_path)
+    seed_adapter_health(db)
 
-        resp = client.get(
-            "/api/v1/integrations/status", headers={"Authorization": "Bearer admin-token"}
-        )
-        assert resp.status_code == 200
-        result = resp.json()
-        for row in result:
-            if row["detail"] == "probed":
-                break
-        else:
-            # At least one row should have been updated by the probe
-            statuses = {r["status"] for r in result}
-            # All should be ok since mock sets them
-            pass
-    finally:
-        prober.refresh_integrations = original_refresh
+    # Reset last_checked_at to 0 to ensure prober updates them
+    with _connect(db) as conn:
+        conn.execute("UPDATE adapter_health SET last_checked_at = 0 WHERE kind = 'integration'")
+        conn.commit()
+
+    resp = client.get(
+        "/api/v1/integrations/status", headers={"Authorization": "Bearer admin-token"}
+    )
+    assert resp.status_code == 200
+    assert called, "the endpoint did not invoke refresh_integrations"
+    result = resp.json()
+    assert any(row["detail"] == "probed" for row in result), result
 
 
-def test_probe_failure_does_not_break_integrations_endpoint(tmp_path):
-    """If refresh_integrations raises, the endpoint still returns data."""
-    import server.prober as prober
+def test_probe_failure_does_not_break_integrations_endpoint(tmp_path, monkeypatch):
+    """If refresh_integrations raises, the endpoint still returns data.
+
+    Patches server.api, where the name is bound - see the note on
+    test_integrations_endpoint_invokes_prober.
+    """
+    import server.api
+
+    called = []
 
     def always_raise(db_path, ttl_seconds=120):
+        called.append(db_path)
         raise RuntimeError("probe bomb")
 
-    original_refresh = prober.refresh_integrations
-    prober.refresh_integrations = always_raise
+    monkeypatch.setattr(server.api, "refresh_integrations", always_raise)
 
-    try:
-        client, db = make_client(tmp_path)
-        seed_adapter_health(db)
+    client, db = make_client(tmp_path)
+    seed_adapter_health(db)
 
-        resp = client.get(
-            "/api/v1/integrations/status", headers={"Authorization": "Bearer admin-token"}
-        )
-        assert resp.status_code == 200
-    finally:
-        prober.refresh_integrations = original_refresh
+    resp = client.get(
+        "/api/v1/integrations/status", headers={"Authorization": "Bearer admin-token"}
+    )
+    assert resp.status_code == 200
+    assert called, "the raising prober was never invoked - the handler went untested"
 
 
 def test_reports_endpoint_returns_200_even_if_capability_update_fails(tmp_path):
@@ -536,6 +534,85 @@ def test_reports_endpoint_returns_200_even_if_capability_update_fails(tmp_path):
         adapters_mod.update_capability_health = original_update
 
 
+def test_capability_update_failure_is_logged(tmp_path, monkeypatch, caplog):
+    """Ingestion stays 200, but the swallowed failure must not vanish silently."""
+    import server.adapters as adapters_mod
+
+    def broken_update(conn):
+        raise RuntimeError("capability bomb")
+
+    monkeypatch.setattr(adapters_mod, "update_capability_health", broken_update)
+    client, db = make_client(tmp_path)
+    seed_adapter_health(db)
+    token = enroll_device(client, "amd-halo")
+
+    with caplog.at_level(logging.ERROR):
+        resp = client.post(
+            "/api/v1/devices/amd-halo/reports",
+            json={"report_data": {"checks": {"opencode": {"status": "ok"}}}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200
+    assert "capability bomb" in caplog.text
+
+
+def test_probe_failure_is_logged(tmp_path, monkeypatch, caplog):
+    """The endpoint still returns 200, but the probe failure is recorded."""
+    import server.api
+
+    def always_raise(db_path, ttl_seconds=120):
+        raise RuntimeError("probe bomb")
+
+    monkeypatch.setattr(server.api, "refresh_integrations", always_raise)
+    client, db = make_client(tmp_path)
+    seed_adapter_health(db)
+
+    with caplog.at_level(logging.ERROR):
+        resp = client.get(
+            "/api/v1/integrations/status", headers={"Authorization": "Bearer admin-token"}
+        )
+    assert resp.status_code == 200
+    assert "probe bomb" in caplog.text
+
+
+def test_adapter_health_write_failure_is_logged(tmp_path, monkeypatch, caplog):
+    """A failed adapter_health UPDATE is swallowed but recorded."""
+    from server import prober
+
+    db = tmp_path / "db.sqlite"
+    seed_adapter_health(db)
+    monkeypatch.setenv("HOLDFAST_INTEGRATION_PROBES", json.dumps({"observatory": "http://x"}))
+    monkeypatch.setattr(prober, "_http_get", lambda url, timeout=3.0: (True, "HTTP 200"))
+
+    real_connection = prober.connection
+
+    class FailingConn:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def execute(self, sql, *args):
+            if sql.strip().upper().startswith("UPDATE"):
+                raise sqlite3.OperationalError("write bomb")
+            return self._inner.execute(sql, *args)
+
+        def __getattr__(self, item):
+            return getattr(self._inner, item)
+
+    class Ctx:
+        def __enter__(self):
+            self._cm = real_connection(str(db))
+            return FailingConn(self._cm.__enter__())
+
+        def __exit__(self, *exc):
+            return self._cm.__exit__(*exc)
+
+    monkeypatch.setattr(prober, "connection", lambda path: Ctx())
+
+    with caplog.at_level(logging.ERROR):
+        prober.refresh_integrations(str(db), ttl_seconds=0)
+    assert "write bomb" in caplog.text
+
+
 # ── prober helper unit tests ────────────────────────────────────────────────
 
 
@@ -553,3 +630,15 @@ def test_parse_probes_env_empty(monkeypatch):
 def test_parse_probes_env_invalid_json(monkeypatch):
     monkeypatch.setenv("HOLDFAST_INTEGRATION_PROBES", "not-json")
     assert _parse_probes_env() == {}
+
+
+def test_parse_probes_env_json_is_not_an_object(monkeypatch):
+    """Valid JSON that is not an object yields {} rather than the parsed value."""
+    monkeypatch.setenv("HOLDFAST_INTEGRATION_PROBES", json.dumps([1, 2]))
+    assert _parse_probes_env() == {}
+
+
+def test_parse_probes_env_coerces_values_to_str(monkeypatch):
+    """Non-string values are coerced so the return type matches dict[str, str]."""
+    monkeypatch.setenv("HOLDFAST_INTEGRATION_PROBES", json.dumps({"net": 8080}))
+    assert _parse_probes_env() == {"net": "8080"}

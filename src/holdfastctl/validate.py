@@ -3,7 +3,7 @@ from typing import Annotated, Any
 
 import typer
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from holdfastctl.manifest_schema import (
     CredentialRef,
@@ -96,6 +96,35 @@ def validate_manifest_file(file_path: Path) -> list[str]:
         
     return errors
 
+#: Catalog blocks and the model each entry must satisfy, as
+#: (yaml key, model, error label, secret-scan context).
+_CATALOG_BLOCKS: tuple[tuple[str, type[BaseModel], str, str], ...] = (
+    ("providers", ProviderEntry, "Provider", "provider"),
+    ("mcp-servers", McpServerEntry, "MCP server", "mcp-server"),
+    ("skills", SkillEntry, "Skill", "skill"),
+    ("credentials", CredentialRef, "Credentials", "credential"),
+)
+
+
+def _validate_catalog_block(
+    data: Any,
+    block: str,
+    model: type[BaseModel],
+    label: str,
+    context: str,
+    errors: list[str],
+) -> None:
+    """Validate every entry in one catalog block, appending any errors."""
+    for entry in data.get(block) or []:
+        try:
+            model(**entry)
+            validate_all_strings(entry, errors, context)
+            if 'source' in entry and isinstance(entry['source'], str):
+                validate_path_safety(entry['source'])
+        except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
+            errors.append(f"{label} validation failed: {e!s}")
+
+
 def validate_catalog_file(file_path: Path) -> list[str]:
     """Validate a catalog file"""
     errors = []
@@ -108,80 +137,12 @@ def validate_catalog_file(file_path: Path) -> list[str]:
             errors.append(f"Empty catalog file: {file_path}")
             return errors
             
-        # Get the filename to determine type
-        filename = file_path.name
-        
-        # Validate based on filename
-        if filename == "providers.yaml":
-            # Validate ProviderEntry structures
-            if "providers" in data:
-                for provider in data["providers"]:
-                    try:
-                        # Validate provider entry
-                        ProviderEntry(**provider)
-                        # Validate secret literals in provider entry
-                        validate_all_strings(provider, errors, "provider")
-                        # Validate paths in provider entry
-                        if 'source' in provider and isinstance(provider['source'], str):
-                            validate_path_safety(provider['source'])
-                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
-                        errors.append(f"Provider validation failed: {e!s}")
-                        
-            if "mcp-servers" in data:
-                for server in data["mcp-servers"]:
-                    try:
-                        # Validate mcp server entry
-                        McpServerEntry(**server)
-                        # Validate secret literals in server entry
-                        validate_all_strings(server, errors, "mcp-server")
-                        # Validate paths in server entry
-                        if 'source' in server and isinstance(server['source'], str):
-                            validate_path_safety(server['source'])
-                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
-                        errors.append(f"MCP server validation failed: {e!s}")
-                        
-        elif filename == "mcp-servers.yaml":
-            # Validate McpServerEntry structures
-            if "mcp-servers" in data:
-                for server in data["mcp-servers"]:
-                    try:
-                        # Validate mcp server entry
-                        McpServerEntry(**server)
-                        # Validate secret literals in server entry
-                        validate_all_strings(server, errors, "mcp-server")
-                        # Validate paths in server entry
-                        if 'source' in server and isinstance(server['source'], str):
-                            validate_path_safety(server['source'])
-                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
-                        errors.append(f"MCP server validation failed: {e!s}")
-                        
-        elif filename == "skills.yaml":
-            # Validate SkillEntry structures
-            if "skills" in data:
-                for skill in data["skills"]:
-                    try:
-                        # Validate skill entry
-                        SkillEntry(**skill)
-                        # Validate secret literals in skill entry
-                        validate_all_strings(skill, errors, "skill")
-                        # Validate paths in skill entry (source field)
-                        if 'source' in skill and isinstance(skill['source'], str):
-                            validate_path_safety(skill['source'])
-                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
-                        errors.append(f"Skill validation failed: {e!s}")
-                        
-        elif filename == "credentials.yaml":
-            # Validate credentials entries
-            if "credentials" in data:
-                for cred in data["credentials"]:
-                    try:
-                        # Validate credential entry
-                        CredentialRef(**cred)
-                        # Validate secret literals in credential entry
-                        validate_all_strings(cred, errors, "credential")
-                    except (ValueError, ValidationError, yaml.YAMLError, OSError) as e:
-                        errors.append(f"Credentials validation failed: {e!s}")
-                        
+        # Validate every block the file actually contains, rather than guessing
+        # from the filename: a catalog may carry providers, mcp-servers, skills
+        # and credentials together, and the one loaded at runtime does.
+        for block, model, label, context in _CATALOG_BLOCKS:
+            _validate_catalog_block(data, block, model, label, context, errors)
+
         # Validate command fields in catalogs (allow npx/uvx with pinning)
         try:
             validate_no_arbitrary_commands(data, is_catalog=True)
@@ -247,8 +208,12 @@ def validate_all_strings(data: Any, errors: list[str], parent_key: str = "") -> 
                 validate_all_strings(item, errors, parent_key)
 
 def is_catalog_file(path: Path) -> bool:
-    """Check if the file is a catalog file"""
-    return path.parent.name == "catalogs" and path.name in ["providers.yaml", "mcp-servers.yaml", "skills.yaml", "credentials.yaml"]
+    """Check if the file is a catalog file.
+
+    Any YAML under catalogs/ counts, so adding a catalog does not silently
+    bypass catalog validation.
+    """
+    return path.parent.name == "catalogs" and path.suffix in (".yaml", ".yml")
 
 @app.command()
 def validate(
