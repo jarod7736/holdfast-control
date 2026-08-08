@@ -74,20 +74,17 @@ all four devices reporting fresh), so nothing here is an outage.
 
 ## Noise — stale files that make the repo hard to read
 
-- **Three superseded status docs at the repo root**, all last touched
-  2026-08-01 and all describing a snapshot that no longer holds:
-  `IMPLEMENTATION_STATUS.md` (claims `pytest` 113 passed / mypy 17 files; it is
-  now 233 passed / 19 files), `IMPLEMENTATION_SUMMARY.md`, and
-  `PHASE2_IMPLEMENTATION_SUMMARY.md`. Worse than merely stale:
-  `IMPLEMENTATION_SUMMARY.md` advertises an *"Apply Module — atomic
-  configuration application"*, while `docs/operating-guide.md` states plainly
-  that there is no `apply` command and that nothing in the codebase writes
-  `opencode.json`. A reader cannot tell which is true without reading the source.
-  `README.md` + `docs/operating-guide.md` now cover this ground; delete the three.
+- **Standalone verification scripts still in `tests/`.** `pytest` collects only
+  `test_*.py` / `*_test.py` (`testpaths = ["tests"]`), so these are not part of
+  the suite and are not run by CI, but they sit alongside the real tests and
+  read as if they were: `comprehensive_verification.py`,
+  `final_server_verification.py`, `final_verification.py`,
+  `focused_phase2_verification.py`, `run_all_tests.py`, `run_test.py`,
+  `test_runner.py`. The now-deleted `IMPLEMENTATION_STATUS.md` recorded the
+  first three as superseded by the collected suite. Check each against the
+  current module layout, then delete or fold into the suite.
 
-- **Three one-off scripts at the repo root**, also 2026-08-01 and superseded by
-  the pytest suite: `debug_validation.py`, `demo_functionality.sh`,
-  `phase1_validation.sh`. `tests/` additionally holds several standalone
-  verification scripts (`comprehensive_verification.py`,
-  `final_server_verification.py`, `final_verification.py`) that
-  `IMPLEMENTATION_STATUS.md` itself records as superseded by the collected suite.
+  The six superseded root-level files this section used to list
+  (`IMPLEMENTATION_STATUS.md`, `IMPLEMENTATION_SUMMARY.md`,
+  `PHASE2_IMPLEMENTATION_SUMMARY.md`, `debug_validation.py`,
+  `demo_functionality.sh`, `phase1_validation.sh`) were deleted 2026-08-07.
