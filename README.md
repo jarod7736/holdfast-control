@@ -34,7 +34,11 @@ Report payloads containing secret-shaped literals (e.g. AWS `AKIA…` keys) are 
 scripts/install-agent.sh
 ```
 
-Installs `holdfastctl`, writes `~/.config/holdfastctl/config.yaml` (device id from the real hostname), and enables a user systemd timer that runs `holdfastctl report` every 15 minutes.
+Installs `holdfastctl`, writes `~/.config/holdfastctl/config.yaml` (device id from the real hostname, control plane `https://holdfast.tail1c66ec.ts.net`), and enables a user systemd timer that runs `holdfastctl report` every 15 minutes.
+
+The script needs a Python >= 3.12. It finds one itself on most hosts; where the
+default `python3` is older (a pyenv box, say), point it at one with
+`--python /path/to/python3.12`.
 
 Start the control plane locally:
 
@@ -47,7 +51,7 @@ Start the control plane locally:
 1. Operator (any machine with the admin token):
    `HOLDFAST_ADMIN_TOKEN=... holdfastctl enroll-code <device-id> --models or-cheap,or-coder --mcp github --control-plane http://<server>:8000`
 2. On the device:
-   `scripts/install-agent.sh --control-plane http://<server>:8000 --enrollment-code <code>`
+   `scripts/install-agent.sh --enrollment-code <code>` (the control plane defaults to the tailnet URL; pass `--control-plane` only to override it)
 3. The first report prints the device's LiteLLM virtual key exactly once — store it in 1Password (`holdfast-lan`) and export it as `LITELLM_API_KEY` in the device's shell profile.
 
 Key minting requires the control plane to run with `HOLDFAST_LITELLM_URL` and `HOLDFAST_LITELLM_ADMIN_TOKEN`

@@ -51,7 +51,11 @@ Note `amd-halo` is reached over Tailscale SSH, which can require periodic
 re-authentication. When that lapses the check now fails honestly as
 `ERROR: could not reach` rather than as a fake config failure.
 
-## `scripts/install-agent.sh` landmines (not fixed)
+## `scripts/install-agent.sh` landmines
+
+Both fixed 2026-08-07 (later the same day) in `scripts/install-agent.sh`: the
+default is now the tailnet URL, and the script selects a Python >= 3.12 itself
+(or takes `--python`) instead of calling bare `pip3`.
 
 **Stale default control plane.** `CONTROL_PLANE_URL` still defaults to
 `http://127.0.0.1:8000`, predating the tailnet cutover in commit 7674de1. The

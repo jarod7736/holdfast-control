@@ -4,6 +4,7 @@ Tests for the WSL agent install assets and the `report` command.
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -51,6 +52,52 @@ class TestInstallScript:
         assert "set -euo pipefail" in text
         assert "holdfastctl-agent.timer" in text
         assert "systemctl --user" in text
+
+    def test_control_plane_default_is_the_tailnet_url(self):
+        """The default must match what fleet_check.sh expects; the config is
+        written once and never overwritten, so a stale default is permanent."""
+        text = (REPO_ROOT / "scripts/install-agent.sh").read_text()
+        assert "https://holdfast.tail1c66ec.ts.net" in text
+        assert "http://127.0.0.1:8000" not in text
+
+    def test_does_not_call_bare_pip3(self):
+        """Bare `pip3` can resolve to a Python older than requires-python."""
+        text = (REPO_ROOT / "scripts/install-agent.sh").read_text()
+        assert "pip3 install" not in text
+        assert "-m pip install" in text
+
+    def _run_install(self, *args):
+        return subprocess.run(
+            [str(REPO_ROOT / "scripts/install-agent.sh"), *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+
+    def test_rejects_unusable_interpreter(self, tmp_path):
+        """An explicit --python that cannot run fails before anything is
+        installed, with a message naming the flag."""
+        stub = tmp_path / "python-broken"
+        stub.write_text("#!/bin/sh\nexit 1\n")
+        stub.chmod(0o755)
+        proc = self._run_install("--python", str(stub))
+        assert proc.returncode != 0
+        assert "--python" in proc.stderr
+        assert "not a working interpreter" in proc.stderr
+
+    def test_rejects_virtualenv_interpreter(self):
+        """holdfastctl-agent.service runs %h/.local/bin/holdfastctl, so the
+        install must be `pip install --user` — which pip refuses inside a venv.
+        Reject such an interpreter with a clear reason instead of letting pip
+        fail obscurely."""
+        venv_python = REPO_ROOT / ".venv/bin/python"
+        if not venv_python.exists():
+            pytest.skip("no .venv in the repo to use as a virtualenv interpreter")
+        proc = self._run_install("--python", str(venv_python))
+        assert proc.returncode != 0
+        assert "virtualenv" in proc.stderr
+        assert "--user" in proc.stderr
 
     def test_shellcheck_smoke(self):
         if shutil.which("shellcheck") is None:
