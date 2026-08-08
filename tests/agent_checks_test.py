@@ -3,8 +3,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from holdfastctl.checks import run_checks
 
 
@@ -62,7 +60,7 @@ class TestRunChecksAllOk:
 
         # Also create .agents/skills to exercise the second base dir
         (tmp_path / ".agents" / "skills").mkdir(parents=True)
-        ((tmp_path / ".agents" / "skills" / "extra")).mkdir()
+        (tmp_path / ".agents" / "skills" / "extra").mkdir()
 
         results = run_checks(opencode_config_dir=tmp_path)
         assert results["skills"]["status"] == "ok"
@@ -179,8 +177,6 @@ class TestRunChecksNeverRaises:
         monkeypatch.setattr("pathlib.Path.home", fake_home)
 
         # Patch the skills path to return our BadDir
-        original_pathlib = __import__("pathlib")
-
         class GoodDir(Path):
             def __init__(self, *args, bad=False, **kwargs):
                 super().__init__(*args, **kwargs)
@@ -205,8 +201,6 @@ class TestRunChecksNeverRaises:
     def test_never_raises_on_provider_count_exception(self, tmp_path, monkeypatch):
         """Force _count_provider_entries to raise — result still populated."""
         from holdfastctl import checks
-
-        orig = checks._count_provider_entries
 
         def broken_count(cd):
             raise ValueError("probe failure")

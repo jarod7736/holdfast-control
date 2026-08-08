@@ -2,7 +2,6 @@
 
 import json
 import sqlite3
-import time
 from pathlib import Path
 from typing import Any
 
@@ -90,7 +89,6 @@ def update_capability_health(conn: "sqlite3.Connection") -> None:
         return  # no device has checks — leave rows untouched
 
     # Step 4: worst-wins + detail construction per capability
-    now = time.time()
     for cap_name, entries in agg.items():
         if not entries:
             continue

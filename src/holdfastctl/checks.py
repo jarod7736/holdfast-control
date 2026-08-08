@@ -125,7 +125,7 @@ def run_checks(
                 results["opencode"] = {"status": "warning", "detail": f"opencode check failed: {err_detail}"}
     except subprocess.TimeoutExpired:
         results["opencode"] = {"status": "warning", "detail": "opencode --version timed out"}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is recorded as an error status row
         d = str(exc)
         if len(d) > 70:
             d = d[:70]
@@ -142,7 +142,7 @@ def run_checks(
             results["providers"] = {"status": "warning", "detail": "no providers configured"}
         else:
             results["providers"] = {"status": "ok", "detail": f"{count} provider(s) configured"}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is recorded as an error status row
         d = str(exc)
         if len(d) > 70:
             d = d[:70]
@@ -159,7 +159,7 @@ def run_checks(
             results["mcp_servers"] = {"status": "warning", "detail": "no mcp servers configured"}
         else:
             results["mcp_servers"] = {"status": "ok", "detail": f"{count} mcp server(s) configured"}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is recorded as an error status row
         d = str(exc)
         if len(d) > 70:
             d = d[:70]
@@ -172,7 +172,7 @@ def run_checks(
             results["skills"] = {"status": "warning", "detail": "no skill dirs found"}
         else:
             results["skills"] = {"status": "ok", "detail": f"{count} skill dir(s) found"}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure is recorded as an error status row
         d = str(exc)
         if len(d) > 70:
             d = d[:70]

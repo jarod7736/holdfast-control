@@ -19,6 +19,10 @@ class ProviderEntry(BaseModel):
     id: str
     type: str
     base_url: str
+    # Read by generate_opencode_plan: builtin providers connect via auth.json
+    # and are never registered in opencode.json.
+    builtin: bool = False
+    note: str | None = None
     credentials: list[CredentialRef] | None = None
 
 
