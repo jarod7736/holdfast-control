@@ -47,16 +47,21 @@ class TestDoctorCommand:
         assert result.exit_code == 0
         assert "doctor" in result.output
 
-    def test_doctor_runs_healthy(self):
-        """Doctor exits 0 when no critical issues are found."""
+    def test_doctor_reports_diagnostics(self):
+        """Doctor runs and prints its report.
+
+        Exit code is 0 when healthy and 1 when issues are found; both are
+        successful runs. Asserting 0 only passes on a fully provisioned
+        machine and fails on any host without opencode/1Password/ssh-agent.
+        """
         result = runner.invoke(app, ["doctor"])
-        assert result.exit_code == 0
+        assert result.exit_code in (0, 1), result.output
         assert "System Diagnostics" in result.output
 
     def test_doctor_json_output(self):
         """Doctor supports --json output with a parseable structure."""
         result = runner.invoke(app, ["doctor", "--json"])
-        assert result.exit_code == 0
+        assert result.exit_code in (0, 1), result.output
         data = json.loads(result.output)
         assert "healthy" in data
         assert "checks" in data
