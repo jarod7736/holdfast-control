@@ -571,7 +571,7 @@ The agent cannot currently submit its own plan (`POST /plans` is `require_admin`
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/plan_endpoints_test.py`. The repo has no `conftest.py`; `tests/test_control_plane_security.py` defines `make_client`, `admin_headers`, and `enroll` as module-level helpers. Copy that trio rather than importing across test modules.
+Create `tests/plan_endpoints_test.py`. These server helpers stay module-level: `tests/test_control_plane_security.py` already defines its own `make_client`/`admin_headers`/`enroll`, and that file is explicitly not being refactored. The `tests/conftest.py` added by Task 3 holds only `device_fixture`, which these tests do not use — do not move the server helpers into it.
 
 ```python
 """

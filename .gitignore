@@ -60,5 +60,9 @@ Thumbs.db
 # Local tooling
 .opencode/
 
+# Isolated worktrees and subagent-driven-development scratch
+.worktrees/
+.superpowers/
+
 .env
 *.db-snapshot
