@@ -83,6 +83,7 @@ pytest tests/
 
 ## Documentation
 
+- [Operating Guide](docs/operating-guide.md) — day-to-day use, enabling features, keeping devices in sync
 - [Architecture](docs/architecture.md)
 - [Threat Model](docs/threat-model.md)
 - [Credential Policy](docs/credential-policy.md)
