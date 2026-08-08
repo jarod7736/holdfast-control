@@ -16,7 +16,8 @@
 - `ruff check` must pass with no findings.
 - `mypy -p holdfastctl -p server` must report success.
 - Baseline suite is **204 passed, 5 skipped**. No task may reduce passing count.
-- Test files: the repo uses both `tests/<module>_test.py` (agent modules) and `tests/test_<area>.py` (control-plane security). Follow whichever the neighbouring tests use. Plain pytest functions; no unittest classes, no `conftest.py` fixtures — helpers are defined per-file, as `tests/test_control_plane_security.py` does.
+- Test files: the repo uses both `tests/<module>_test.py` (agent modules) and `tests/test_<area>.py` (control-plane security). Follow whichever the neighbouring tests use. Plain pytest functions; no unittest classes.
+- **Shared test fixtures live in `tests/conftest.py`** (introduced by Task 3). Any fixture needed by more than one test module goes there rather than being copied. Existing per-file helpers in `tests/test_control_plane_security.py` are left alone — do not refactor them.
 - Commit messages use the repo's existing style: imperative subject line, no `feat:`/`fix:` prefix. Body explains why.
 - No secrets in any committed file.
 - The agent never executes actions supplied by the control plane.
@@ -376,6 +377,7 @@ filename timestamps."
 
 **Files:**
 - Modify: `src/holdfastctl/capabilities.py`
+- Create: `tests/conftest.py`
 - Test: `tests/capabilities_test.py`
 
 **Interfaces:**
@@ -383,41 +385,35 @@ filename timestamps."
 - Produces:
   - `collect_device_state(manifest_path: Path, catalog_path: Path, *, opencode_config_dir: Path) -> dict[str, Any]`
   - `device_state_fingerprint(state: dict[str, Any]) -> str`
+  - `tests/conftest.py` fixture `device_fixture` → `tuple[Path, Path, Path]` of `(manifest_path, catalog_path, opencode_config_dir)`, consumed by Task 3 and Task 7
 
 The fingerprint hashes the *probed current state*, not the derived actions — two different states can produce the same action list, and the spec requires that a changed state invalidate approval.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/capabilities_test.py`:
+First create `tests/conftest.py` — this repo has no conftest yet, and Task 7 consumes the same fixture:
 
 ```python
-def test_fingerprint_is_stable_across_repeated_inspections(tmp_path: Path) -> None:
-    """Spec acceptance 1: repeated inspections hash identically."""
-    from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
+"""
+Shared pytest fixtures.
 
-    manifest, catalog, config_dir = _fingerprint_fixture(tmp_path)
-    first = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
-    second = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
-    assert first == second
+Fixtures needed by more than one test module live here rather than being
+copied between files. Per-file helpers in test_control_plane_security.py
+predate this file and are deliberately left alone.
+"""
 
+import json
+from pathlib import Path
 
-def test_fingerprint_changes_when_config_changes(tmp_path: Path) -> None:
-    """Spec acceptance 2: changed local state must invalidate an approval."""
-    from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
-
-    manifest, catalog, config_dir = _fingerprint_fixture(tmp_path)
-    before = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
-
-    (config_dir / "opencode.json").write_text(
-        json.dumps({"provider": {"lemonade": {"options": {"baseURL": "http://changed:13305/v1"}}}}),
-        encoding="utf-8",
-    )
-    after = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
-    assert before != after
+import pytest
 
 
-def _fingerprint_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """Minimal manifest + catalog + opencode config dir for fingerprint tests."""
+@pytest.fixture
+def device_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A minimal device manifest, credential catalog, and opencode config dir.
+
+    Returns (manifest_path, catalog_path, opencode_config_dir).
+    """
     manifest = tmp_path / "device.yaml"
     manifest.write_text(
         "device:\n"
@@ -447,6 +443,34 @@ def _fingerprint_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     return manifest, catalog, config_dir
+```
+
+Then append to `tests/capabilities_test.py`:
+
+```python
+def test_fingerprint_is_stable_across_repeated_inspections(device_fixture) -> None:
+    """Spec acceptance 1: repeated inspections hash identically."""
+    from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
+
+    manifest, catalog, config_dir = device_fixture
+    first = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
+    second = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
+    assert first == second
+
+
+def test_fingerprint_changes_when_config_changes(device_fixture) -> None:
+    """Spec acceptance 2: changed local state must invalidate an approval."""
+    from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
+
+    manifest, catalog, config_dir = device_fixture
+    before = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
+
+    (config_dir / "opencode.json").write_text(
+        json.dumps({"provider": {"lemonade": {"options": {"baseURL": "http://changed:13305/v1"}}}}),
+        encoding="utf-8",
+    )
+    after = device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=config_dir))
+    assert before != after
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1100,7 +1124,7 @@ knowledge of configuration shape."
 Append to `tests/cli_test.py`, following the existing `CliRunner` usage in that file:
 
 ```python
-def test_plan_local_prints_actions_without_submitting(tmp_path, monkeypatch):
+def test_plan_local_prints_actions_without_submitting(device_fixture, monkeypatch):
     """--local preserves the old reconcile behavior: print, never contact the server."""
     from typer.testing import CliRunner
 
@@ -1111,7 +1135,7 @@ def test_plan_local_prints_actions_without_submitting(tmp_path, monkeypatch):
 
     monkeypatch.setattr("requests.post", explode)
 
-    manifest, catalog, config_dir = _cli_plan_fixture(tmp_path)
+    manifest, catalog, config_dir = device_fixture
     result = CliRunner().invoke(
         app,
         ["plan", "--local", "-m", str(manifest), "--catalog", str(catalog), "--config-dir", str(config_dir)],
@@ -1138,7 +1162,7 @@ def test_reconcile_command_is_gone(tmp_path):
     assert result.exit_code != 0
 ```
 
-Reuse `_fingerprint_fixture` from Task 3 by copying it into `tests/cli_test.py` as `_cli_plan_fixture` — tests should not import helpers across test modules.
+These tests consume the `device_fixture` fixture Task 3 added to `tests/conftest.py`. Do not copy it — pytest injects it by name.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
