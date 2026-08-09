@@ -13,7 +13,33 @@ class BackupError(Exception):
     """Exception raised when backup operations fail."""
 
 
+from typing import Any
+
 class BackupManager:
+    # Existing methods omitted for brevity
+    # ... (existing code above) ...
+    def write_manifest(self, plan_id: str, entries: list[dict[str, Any]]) -> None:
+        """Write a manifest of backup entries for a plan.
+        
+        The manifest is stored as JSON in the backup directory with filename
+        f"{plan_id}.manifest.json".
+        """
+        import json
+        manifest_path = self.backup_dir / f"{plan_id}.manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(entries, f)
+
+    def read_manifest(self, plan_id: str) -> list[dict[str, Any]]:
+        """Read a manifest written by write_manifest.
+        
+        Returns an empty list if the manifest does not exist.
+        """
+        import json
+        manifest_path = self.backup_dir / f"{plan_id}.manifest.json"
+        if not manifest_path.is_file():
+            return []
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            return json.load(f)
     """Manage device backups."""
 
     def __init__(self, backup_dir: Path | None = None):

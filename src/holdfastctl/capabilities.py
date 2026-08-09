@@ -301,7 +301,38 @@ ADAPTERS: dict[str, OpencodeAdapter | NetworkAdapter | GatewayAccessAdapter] = {
 }
 
 
+def collect_device_state(
+    manifest_path: Path,
+    catalog_path: Path,
+    *,
+    opencode_config_dir: Path,
+) -> dict[str, Any]:
+    """Collect current device state for fingerprinting.
+    Returns a dict containing manifest and catalog data and a commit hash.
+    """
+    import yaml
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest = yaml.safe_load(manifest_text) or {}
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
+    # Compute manifest commit hash
+    from hashlib import sha256
+    manifest_commit = sha256(manifest_text.encode("utf-8")).hexdigest()
+    return {
+        "manifest": manifest,
+        "catalog": catalog,
+        "manifest_commit": manifest_commit,
+    }
+
+def device_state_fingerprint(state: dict[str, Any]) -> str:
+    """Return a fingerprint (SHA256) of the given state dict."""
+    import json
+    from hashlib import sha256
+    # Ensure deterministic ordering
+    text = json.dumps(state, sort_keys=True, default=str)
+    return sha256(text.encode("utf-8")).hexdigest()
+
 def reconcile_device(
+
     manifest_path: Path,
     catalog_path: Path,
     *,

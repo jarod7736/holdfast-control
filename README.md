@@ -1,5 +1,7 @@
 # Holdfast Control
 
+Holdfast Control is a lightweight, agent‑driven configuration‑management system for a home‑lab. Each device runs the `holdfastctl` CLI agent, which inspects local state, reconciles it against a declarative manifest, and reports health and drift to a central FastAPI control plane. The control plane stores reports, issues enrollment codes, and provides a dashboard for monitoring consistency across the fleet.
+
 Configuration management for home lab devices: an agent-driven system that inventories devices, reconciles them against declared manifests, and reports status/drift to a small control plane.
 
 ## Architecture
@@ -7,7 +9,8 @@ Configuration management for home lab devices: an agent-driven system that inven
 - **`holdfastctl`** — the agent CLI (Python, `src/holdfastctl/`):
   - `doctor` — diagnostic checks for the local system (opencode, 1Password, git, ssh-agent, …)
   - `inspect` — collects a structured device state snapshot
-  - `reconcile` — compares current state to the desired manifest and produces a change plan
+  - `approve` / `apply` / `rollback` — operator‑gated plan execution with backup and rollback support
+  - `reconcile` — (deprecated) compares current state to the desired manifest and produces a change plan
   - `report` — enrolls with the control plane, stores a report-only token (mode `0600`), and posts device status
   - Device identity is resolved from the config, then the hostname (hosts/DNS), then an interactive prompt.
 - **Control plane** — FastAPI server (`server/`), run with `python -m server` (listens on `0.0.0.0` so every device on the LAN can reach it; override with `HOLDFAST_HOST`/`HOLDFAST_PORT`):
