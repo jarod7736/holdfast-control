@@ -2,6 +2,13 @@
 
 ## Status: Implementation Complete (Gates Green)
 
+### Phase 2 Task Progress
+
+- **Task 1–7**: Completed (see `progress.md` for details). ✅
+- **Task 8**: In‑progress – CLI approve/apply/rollback implemented, but final tests and documentation pending. ⚠️
+- **Task 9**: Not started – further CLI enhancements / documentation updates. ⏸️
+- **Task 10**: Not started – final integration and release steps. ⏸️
+
 ### ✅ Requirements Implemented Correctly:
 1. **SQLite persistence** - All required database tables created properly
 2. **One-time expiring device-bound enrollment codes** - Generated and validated correctly
