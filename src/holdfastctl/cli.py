@@ -1,19 +1,18 @@
 """Command-line interface for holdfastctl."""
 
 import json
-import logging
-import yaml
 import os
 import socket
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
-from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
 
 import typer
-from holdfastctl.reporting import StatusReporter, ReportingError
+import yaml
 
+from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
+from holdfastctl.reporting import ReportingError, StatusReporter
 from holdfastctl.validate import validate as _validate
 
 app = typer.Typer(help="Holdfast Control - configuration management for home lab devices")
@@ -43,11 +42,10 @@ def _resolve_device_id(config: dict[str, object]) -> str:
 
 def _load_agent_config(config_path: Path) -> dict[str, Any]:
     """Load YAML config file."""
-    import yaml
     try:
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - surface any config read error to the user
         typer.echo(f"Error: failed to read config {config_path}: {e}", err=True)
         raise typer.Exit(code=1)
 
@@ -275,7 +273,6 @@ def report(
     ),
 ) -> None:
     """Inspect local state and report it to the control plane."""
-    import yaml
 
     from holdfastctl.inspect import DeviceInspector
     from holdfastctl.manifest_schema import DeviceInfo
@@ -305,7 +302,7 @@ def report(
         from holdfastctl.checks import run_checks
 
         status["checks"] = run_checks()
-    except Exception:  # noqa: BLE001 - catastrophic checks failure must not break reporting
+    except Exception:  # noqa: BLE001,S110 - catastrophic checks failure must not break reporting
         pass
 
     token_path = config.get("token_path") or str(config_path.parent / "report.token")
@@ -339,7 +336,6 @@ def status(
     if not config_path.exists():
         typer.echo(f"Error: config not found at {config_path}", err=True)
         raise typer.Exit(code=1)
-    import yaml
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
     device_id = _resolve_device_id(config)
@@ -474,7 +470,6 @@ def _reconcile_context_for(
     config_dir: Path,
 ) -> Any:
     """Build a ReconcileContext matching what reconcile_device uses internally."""
-    import yaml
     from holdfastctl.capabilities import ReconcileContext, _sha256_hex
     manifest_text = manifest_path.read_text(encoding="utf-8")
     manifest = yaml.safe_load(manifest_text) or {}
@@ -495,7 +490,8 @@ def approve(
 ) -> None:
     """Approve a plan. Operator command: requires HOLDFAST_ADMIN_TOKEN."""
     import os
-    from holdfastctl.reporting import ReportingError, StatusReporter
+
+    from holdfastctl.reporting import StatusReporter
     admin_token = os.environ.get("HOLDFAST_ADMIN_TOKEN")
     if not admin_token:
         typer.echo("Error: HOLDFAST_ADMIN_TOKEN is not set", err=True)
@@ -517,26 +513,30 @@ def approve(
 def apply(
     plan_id: str = typer.Argument(..., help="Approved plan id"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print what would change and exit without writing"),
-    manifest_path: Path = typer.Option(
+    manifest_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
         Path("manifests/devices/jarod7736-laptop.yaml"), "--manifest", "-m", help="Device manifest YAML"
     ),
-    catalog_path: Path = typer.Option(
+    catalog_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
         Path("manifests/catalogs/credentials.yaml"), "--catalog", help="Credential catalog YAML"
     ),
-    config_dir: Path = typer.Option(
-        Path.home() / ".config" / "opencode", "--config-dir", help="OpenCode config directory"
+    config_dir: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "opencode",  # noqa: B008 - idiomatic typer default
+        "--config-dir",
+        help="OpenCode config directory",
     ),
-    config_path: Path = typer.Option(
-        Path.home() / ".config" / "holdfastctl" / "config.yaml", "--config", "-c", help="Agent config file",
+    config_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "holdfastctl" / "config.yaml",  # noqa: B008 - idiomatic typer default
+        "--config",
+        "-c",
+        help="Agent config file",
     ),
 ) -> None:
     """Apply an approved plan after re-verifying that local state still matches."""
     import time
+
     from holdfastctl.backup import BackupManager
     from holdfastctl.capabilities import (
         ADAPTERS,
-        collect_device_state,
-        device_state_fingerprint,
         reconcile_device,
     )
     from holdfastctl.reporting import ReportingError, StatusReporter
@@ -582,7 +582,7 @@ def apply(
                 context = _reconcile_context_for(manifest_path, catalog_path, config_dir)
                 entries.append(applier(p, context, backup_manager=backup_manager))
                 typer.echo(f"{p.action} {p.target}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - any apply failure triggers rollback below
         typer.echo(f"Error: apply failed: {e}; restoring", err=True)
         for entry in entries:
             if entry["backup"]:

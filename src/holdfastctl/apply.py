@@ -3,29 +3,28 @@ Atomic configuration application module for Holdfast Control.
 This module provides capabilities for applying configuration changes atomically with backup support.
 """
 
+import json
 import os
-
-def atomic_write(target, new_config, allowed_prefixes=()):  # noqa: D401
-    from pathlib import Path
-    """Write JSON config atomically to target path within allowed prefixes.
-    Simple implementation for tests.
-    """
-    # Ensure target is within allowed prefixes
-    if allowed_prefixes:
-        if not any(str(target).startswith(str(p)) for p in allowed_prefixes):
-            raise ValueError(f"Target {target} not within allowed prefixes")
-    # Write to temp file then rename
-    import json, tempfile, shutil
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=target.parent) as tf:
-        json.dump(new_config, tf, indent=2)
-        temp_name = tf.name
-    shutil.move(temp_name, target)
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from .backup import BackupError, BackupManager
+
+
+def atomic_write(target: Path, new_config: dict[str, Any], allowed_prefixes: tuple[Path, ...] = ()) -> None:
+    """Write JSON config atomically to target path within allowed prefixes.
+    Simple implementation for tests.
+    """
+    # Ensure target is within allowed prefixes
+    if allowed_prefixes and not any(str(target).startswith(str(p)) for p in allowed_prefixes):
+        raise ValueError(f"Target {target} not within allowed prefixes")
+    # Write to temp file then rename
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=target.parent) as tf:
+        json.dump(new_config, tf, indent=2)
+        temp_name = tf.name
+    shutil.move(temp_name, target)
 
 
 class ApplyError(Exception):
@@ -69,7 +68,6 @@ class AtomicApplier:
             
             # Write new configuration to temporary file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.tmp', delete=False) as temp_file:
-                import json
                 json.dump(new_config, temp_file, indent=2)
                 temp_file_path = temp_file.name
             

@@ -1,7 +1,7 @@
-import pytest
-from pathlib import Path
 import os
 import stat
+
+import pytest
 
 from holdfastctl.apply import atomic_write
 from holdfastctl.backup import BackupManager

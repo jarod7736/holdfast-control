@@ -15,6 +15,7 @@ class BackupError(Exception):
 
 from typing import Any
 
+
 class BackupManager:
     # Existing methods omitted for brevity
     # ... (existing code above) ...
@@ -39,7 +40,8 @@ class BackupManager:
         if not manifest_path.is_file():
             return []
         with open(manifest_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            loaded: list[dict[str, Any]] = json.load(f)
+        return loaded
     """Manage device backups."""
 
     def __init__(self, backup_dir: Path | None = None):

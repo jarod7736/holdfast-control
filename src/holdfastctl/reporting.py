@@ -33,7 +33,8 @@ class StatusReporter:
         response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
         if response.status_code != 200:
             raise ReportingError(f"Failed to get plan: {response.status_code} {response.text}")
-        return response.json()
+        plan: dict[str, Any] = response.json()
+        return plan
 
     def approve_plan(self, plan_id: str, current_hash: str, desired_commit: str, admin_token: str) -> None:
         """Approve a plan via the control plane (operator)."""
