@@ -1,7 +1,7 @@
 """Command-line interface for holdfastctl."""
 
 import json
-import logging
+import os
 import socket
 import subprocess
 import sys
@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
+import yaml
 
+from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
+from holdfastctl.reporting import ReportingError, StatusReporter
 from holdfastctl.validate import validate as _validate
 
 app = typer.Typer(help="Holdfast Control - configuration management for home lab devices")
@@ -25,19 +28,26 @@ def main(ctx: typer.Context) -> None:
 
 
 def _resolve_device_id(config: dict[str, object]) -> str:
-    """Resolve the device id: explicit config, then hostname (hosts/DNS), then ask the user."""
+    """Resolve the device id from config or hostname."""
     explicit = config.get("device_id")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
-
     hostname = socket.gethostname().strip() or socket.getfqdn().strip()
     if hostname:
         return hostname
-
     if sys.stdin.isatty():
         value = typer.prompt("Could not detect a device name. Device id", default="local")
         return value.strip() or "local"
     return "local"
+
+def _load_agent_config(config_path: Path) -> dict[str, Any]:
+    """Load YAML config file."""
+    try:
+        with open(config_path) as f:
+            return yaml.safe_load(f) or {}
+    except Exception as e:  # noqa: BLE001 - surface any config read error to the user
+        typer.echo(f"Error: failed to read config {config_path}: {e}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -263,7 +273,6 @@ def report(
     ),
 ) -> None:
     """Inspect local state and report it to the control plane."""
-    import yaml
 
     from holdfastctl.inspect import DeviceInspector
     from holdfastctl.manifest_schema import DeviceInfo
@@ -293,24 +302,55 @@ def report(
         from holdfastctl.checks import run_checks
 
         status["checks"] = run_checks()
-    except Exception:  # catastrophic checks failure must not break reporting
-        logging.getLogger(__name__).exception("capability checks failed; reporting without them")
+    except Exception:  # noqa: BLE001,S110 - catastrophic checks failure must not break reporting
+        pass
 
     token_path = config.get("token_path") or str(config_path.parent / "report.token")
     reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
     try:
         ok = reporter.report_status(status, enrollment_code=enrollment_code)
     except ReportingError as e:
-        typer.echo(f"Error: reporting to {control_plane_url} failed: {e}", err=True)
+        # Ensure minted gateway key (if any) is shown before exiting
         _echo_pending_gateway_key(reporter, device_id)
+        typer.echo(f"Error: reporting to {control_plane_url} failed: {e}", err=True)
         raise typer.Exit(code=1)
 
     if not ok:
-        typer.echo(f"Error: control plane at {control_plane_url} rejected the report", err=True)
+        # Ensure minted key is shown even when the control plane rejects the report
         _echo_pending_gateway_key(reporter, device_id)
+        typer.echo(f"Error: control plane at {control_plane_url} rejected the report", err=True)
         raise typer.Exit(code=1)
 
     typer.echo(f"Reported {device_id} to {control_plane_url}")
+    # Show minted key on successful report as well
+    _echo_pending_gateway_key(reporter, device_id)
+
+
+@app.command()
+def status(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Report device status to the control plane (no enrollment)."""
+    # Load config
+    config_path = Path.home() / ".config" / "holdfastctl" / "config.yaml"
+    if not config_path.exists():
+        typer.echo(f"Error: config not found at {config_path}", err=True)
+        raise typer.Exit(code=1)
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+    device_id = _resolve_device_id(config)
+    control_plane_url = config.get("control_plane_url", "http://127.0.0.1:8000")
+    token_path = config.get("token_path") or str(config_path.parent / "report.token")
+    reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
+    # Build status dict
+    status_data = reporter.get_device_status()
+    if json_output:
+        import json
+        print(json.dumps(status_data, indent=2))
+    else:
+        for k, v in status_data.items():
+            typer.echo(f"{k}: {v}")
+
     _echo_pending_gateway_key(reporter, device_id)
 
 
@@ -405,5 +445,232 @@ def reconcile(
         typer.echo("\nNo drift - device matches manifest.")
 
 
+
+
+def _verify_plan_applicable(
+    plan_data: dict[str, Any],
+    *,
+    current_hash: str,
+    desired_commit: str,
+    now: float,
+) -> None:
+    """Raise ValueError unless an approved plan still matches current state."""
+    if plan_data.get("approval_status") != "approved":
+        raise ValueError(f"Plan is not approved (status: {plan_data.get('approval_status')})")
+    if float(plan_data.get("expiry_timestamp", 0)) <= now:
+        raise ValueError("Plan has expired; run `holdfastctl plan` again")
+    if plan_data.get("current_hash") != current_hash:
+        raise ValueError("Local state has changed since approval; run `holdfastctl plan` again")
+    if plan_data.get("desired_commit") != desired_commit:
+        raise ValueError("Device manifest has changed since approval; run `holdfastctl plan` again")
+
+def _reconcile_context_for(
+    manifest_path: Path,
+    catalog_path: Path,
+    config_dir: Path,
+) -> Any:
+    """Build a ReconcileContext matching what reconcile_device uses internally."""
+    from holdfastctl.capabilities import ReconcileContext, _sha256_hex
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest = yaml.safe_load(manifest_text) or {}
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
+    return ReconcileContext(
+        device_id=(manifest.get("device") or {}).get("id", "unknown"),
+        manifest_commit=_sha256_hex(manifest_text),
+        credentials=manifest.get("credentials", []) or [],
+        catalog=catalog,
+        opencode_config_dir=config_dir,
+    )
+
+@app.command()
+def plan(
+    manifest_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/devices/jarod7736-laptop.yaml"), "--manifest", "-m", help="Device manifest YAML"
+    ),
+    catalog_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/catalogs/credentials.yaml"), "--catalog", help="Credential catalog YAML"
+    ),
+    config_dir: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "opencode",  # noqa: B008 - idiomatic typer default
+        "--config-dir",
+        help="OpenCode config directory",
+    ),
+    local: bool = typer.Option(False, "--local", help="Print the plan without submitting it"),
+    config_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "holdfastctl" / "config.yaml",  # noqa: B008 - idiomatic typer default
+        "--config",
+        "-c",
+        help="Agent config file",
+    ),
+) -> None:
+    """Reconcile local state and submit a plan fingerprint to the control plane."""
+    from holdfastctl.capabilities import reconcile_device
+
+    results = reconcile_device(manifest_path, catalog_path, opencode_config_dir=config_dir)
+    for capability, plans in results.items():
+        for p in plans:
+            typer.echo(f"{p.action} {p.target} ({capability})")
+
+    if local:
+        typer.echo("\nLocal plan only; not submitted.")
+        return
+
+    config = _load_agent_config(config_path)
+    device_id = _resolve_device_id(config)
+    control_plane_url = config.get("control_plane_url", "https://holdfast.tail1c66ec.ts.net")
+    token_path = config.get("token_path") or str(config_path.parent / "report.token")
+
+    state = collect_device_state(manifest_path, catalog_path, opencode_config_dir=config_dir)
+    current_hash = device_state_fingerprint(state)
+    desired_commit = state["manifest_commit"]
+
+    reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
+    try:
+        created = reporter.create_plan(desired_commit, current_hash)
+    except ReportingError as e:
+        typer.echo(f"Error: plan submission to {control_plane_url} failed: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nPlan {created['id']} submitted ({created['approval_status']}).")
+    typer.echo(f"Approve with: holdfastctl approve {created['id']} --device {device_id} --control-plane {control_plane_url}")
+
+
+@app.command()
+def approve(
+    plan_id: str = typer.Argument(..., help="Plan id to approve"),
+    device_id_opt: str = typer.Option(..., "--device", "-d", help="Device the plan belongs to"),
+    control_plane: str = typer.Option(..., "--control-plane", help="Control plane base URL"),
+) -> None:
+    """Approve a plan. Operator command: requires HOLDFAST_ADMIN_TOKEN."""
+    import os
+
+    from holdfastctl.reporting import StatusReporter
+    admin_token = os.environ.get("HOLDFAST_ADMIN_TOKEN")
+    if not admin_token:
+        typer.echo("Error: HOLDFAST_ADMIN_TOKEN is not set", err=True)
+        raise typer.Exit(code=1)
+    reporter = StatusReporter(control_plane, device_id_opt)
+    try:
+        current = reporter.get_plan(plan_id, admin_token=admin_token)
+    except ReportingError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        reporter.approve_plan(plan_id, current["current_hash"], current["desired_commit"], admin_token)
+    except ReportingError as e:
+        typer.echo(f"Error: approval failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Plan {plan_id} approved.")
+
+@app.command()
+def apply(
+    plan_id: str = typer.Argument(..., help="Approved plan id"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print what would change and exit without writing"),
+    manifest_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/devices/jarod7736-laptop.yaml"), "--manifest", "-m", help="Device manifest YAML"
+    ),
+    catalog_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/catalogs/credentials.yaml"), "--catalog", help="Credential catalog YAML"
+    ),
+    config_dir: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "opencode",  # noqa: B008 - idiomatic typer default
+        "--config-dir",
+        help="OpenCode config directory",
+    ),
+    config_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "holdfastctl" / "config.yaml",  # noqa: B008 - idiomatic typer default
+        "--config",
+        "-c",
+        help="Agent config file",
+    ),
+) -> None:
+    """Apply an approved plan after re-verifying that local state still matches."""
+    import time
+
+    from holdfastctl.backup import BackupManager
+    from holdfastctl.capabilities import (
+        ADAPTERS,
+        reconcile_device,
+    )
+    from holdfastctl.reporting import ReportingError, StatusReporter
+    config = _load_agent_config(config_path)
+    device_id = _resolve_device_id(config)
+    control_plane_url = config.get("control_plane_url", "http://127.0.0.1:8000")
+    token_path = config.get("token_path") or str(config_path.parent / "report.token")
+    state = collect_device_state(manifest_path, catalog_path, opencode_config_dir=config_dir)
+    current_hash = device_state_fingerprint(state)
+    desired_commit = state["manifest_commit"]
+    reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
+    try:
+        plan_data = reporter.get_plan(plan_id)
+    except ReportingError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        _verify_plan_applicable(
+            plan_data,
+            current_hash=current_hash,
+            desired_commit=desired_commit,
+            now=time.time(),
+        )
+    except ValueError as e:
+        typer.echo(f"Error: refusing to apply. {e}", err=True)
+        raise typer.Exit(code=1)
+    results = reconcile_device(manifest_path, catalog_path, opencode_config_dir=config_dir)
+    if dry_run:
+        for capability, plans in results.items():
+            for p in plans:
+                typer.echo(f"would {p.action} {p.target} ({capability})")
+        typer.echo("\nDry run; nothing written.")
+        return
+    backup_manager = BackupManager()
+    entries: list[dict[str, str | int]] = []
+    try:
+        for capability, plans in results.items():
+            adapter = ADAPTERS[capability]
+            applier = getattr(adapter, "apply", None)
+            if applier is None:
+                continue
+            for p in plans:
+                kind = p.target.split(":", 1)[0]
+                if p.action != "add" or kind not in ("provider", "mcp_server"):
+                    typer.echo(f"skip {p.action} {p.target} (advisory; fix by hand)")
+                    continue
+                context = _reconcile_context_for(manifest_path, catalog_path, config_dir)
+                entries.append(applier(p, context, backup_manager=backup_manager))
+                typer.echo(f"{p.action} {p.target}")
+    except Exception as e:  # noqa: BLE001 - any apply failure triggers rollback below
+        typer.echo(f"Error: apply failed: {e}; restoring", err=True)
+        for entry in entries:
+            if entry["backup"]:
+                backup_manager.restore_from_backup(Path(str(entry["target"])), Path(str(entry["backup"])))
+        raise typer.Exit(code=1)
+    backup_manager.write_manifest(plan_id, entries)
+    typer.echo(f"\nApplied plan {plan_id}. Roll back with: holdfastctl rollback {plan_id}")
+
+@app.command()
+def rollback(
+    plan_id: str = typer.Argument(..., help="Plan id to roll back"),
+) -> None:
+    """Restore every file a plan backed up."""
+    from holdfastctl.backup import BackupManager
+    backup_manager = BackupManager()
+    entries = backup_manager.read_manifest(plan_id)
+    if not entries:
+        typer.echo(f"Error: no backup manifest for plan {plan_id}", err=True)
+        raise typer.Exit(code=1)
+    for entry in entries:
+        target = Path(str(entry["target"]))
+        backup = str(entry["backup"])
+        if not backup:
+            target.unlink(missing_ok=True)
+            typer.echo(f"removed {target} (did not exist before apply)")
+            continue
+        backup_manager.restore_from_backup(target, Path(backup))
+        os.chmod(target, int(entry["mode"]))
+        typer.echo(f"restored {target}")
+    typer.echo(f"\nRolled back plan {plan_id}.")
+
 if __name__ == "__main__":
     app()
+

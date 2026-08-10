@@ -26,6 +26,48 @@ class ReportingError(Exception):
 
 
 class StatusReporter:
+    def create_plan(self, desired_commit: str, current_hash: str, expiry_hours: int = 24) -> dict[str, Any]:
+        """Submit a plan fingerprint; returns the created plan including its id."""
+        token = self._load_or_create_token()
+        url = f"{self.control_plane_url}/api/v1/devices/{self.device_id}/plans"
+        response = requests.post(
+            url,
+            json={"desired_commit": desired_commit, "current_hash": current_hash, "expiry_hours": expiry_hours},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if response.status_code != 200:
+            raise ReportingError(f"Plan creation failed: {response.status_code} {response.text}")
+        created: dict[str, Any] = response.json()
+        return created
+
+    def get_plan(self, plan_id: str, admin_token: str | None = None) -> dict[str, Any]:
+        """Fetch a plan from the control plane.
+
+        Uses the admin token when given (operator path), otherwise the device's
+        own report token.
+        """
+        token = admin_token if admin_token is not None else self._load_or_create_token()
+        url = f"{self.control_plane_url}/api/v1/devices/{self.device_id}/plans/{plan_id}"
+        response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code != 200:
+            raise ReportingError(f"Failed to get plan: {response.status_code} {response.text}")
+        plan: dict[str, Any] = response.json()
+        return plan
+
+    def approve_plan(self, plan_id: str, current_hash: str, desired_commit: str, admin_token: str) -> None:
+        """Approve a plan via the control plane (operator)."""
+        url = f"{self.control_plane_url}/api/v1/devices/{self.device_id}/plans/{plan_id}/approve"
+        payload = {
+            "current_hash": current_hash,
+            "desired_commit": desired_commit,
+        }
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            raise ReportingError(f"Failed to approve plan: {response.status_code} {response.text}")
+
+    # existing __init__ etc.
+
     """Report device status and configuration changes to the control plane."""
 
     def __init__(self, control_plane_url: str, device_id: str, token_path: str | None = None):
