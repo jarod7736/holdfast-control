@@ -361,21 +361,37 @@ def collect_device_state(
     *,
     opencode_config_dir: Path,
 ) -> dict[str, Any]:
-    """Collect current device state for fingerprinting.
-    Returns a dict containing manifest and catalog data and a commit hash.
+    """Probe the current state of every capability the manifest declares.
+
+    Returns a JSON-serializable snapshot -- the input to
+    device_state_fingerprint, and what an approval is bound to. It MUST reflect
+    the device's actual opencode config, not just the manifest, so that a change
+    to local state invalidates a prior approval.
     """
     import yaml
+
+    from holdfastctl.reconcile import load_current_opencode_state
+
     manifest_text = manifest_path.read_text(encoding="utf-8")
     manifest = yaml.safe_load(manifest_text) or {}
-    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
-    # Compute manifest commit hash
-    from hashlib import sha256
-    manifest_commit = sha256(manifest_text.encode("utf-8")).hexdigest()
-    return {
-        "manifest": manifest,
-        "catalog": catalog,
-        "manifest_commit": manifest_commit,
+    capabilities = manifest.get("capabilities", {}) or {}
+
+    state: dict[str, Any] = {
+        "device_id": (manifest.get("device") or {}).get("id", "unknown"),
+        "manifest_commit": _sha256_hex(manifest_text),
+        "capabilities": {},
     }
+
+    if "opencode" in capabilities:
+        current = load_current_opencode_state(opencode_config_dir)
+        state["capabilities"]["opencode"] = {
+            "providers": current["providers"],
+            "mcp_servers": current["mcp_servers"],
+            "plugins": current["plugins"],
+            "env_refs": sorted(current["env_refs"]),
+        }
+
+    return state
 
 def device_state_fingerprint(state: dict[str, Any]) -> str:
     """Return a fingerprint (SHA256) of the given state dict."""

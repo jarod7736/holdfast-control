@@ -404,3 +404,35 @@ def test_opencode_apply_preserves_unmanaged_keys(tmp_path):
     assert result["provider"]["amd-halo"]["options"]["baseURL"] == "http://amd-halo:13305/api/v1"
     assert entry["target"] == str(config_dir / "opencode.json")
     assert Path(str(entry["backup"])).is_file()
+
+
+def test_collect_device_state_fingerprint_reflects_opencode_config(tmp_path):
+    """Regression: the fingerprint MUST change when the device's opencode config
+    changes, else a stale approval could be applied after drift."""
+    from holdfastctl.capabilities import collect_device_state, device_state_fingerprint
+
+    manifest = tmp_path / "device.yaml"
+    manifest.write_text(
+        "device:\n  id: test-device\n  profile: linux\n"
+        "capabilities:\n  opencode:\n    required: true\n    providers: [amd-halo]\n    mcp_servers: []\n"
+        "credentials: []\n",
+        encoding="utf-8",
+    )
+    catalog = tmp_path / "catalog.yaml"
+    catalog.write_text("providers: []\nmcp-servers: []\n", encoding="utf-8")
+    cd = tmp_path / "opencode"
+    cd.mkdir()
+    (cd / "opencode.json").write_text(
+        json.dumps({"provider": {"lemonade": {"options": {"baseURL": "http://a"}}}}), encoding="utf-8"
+    )
+
+    def fp() -> str:
+        return device_state_fingerprint(collect_device_state(manifest, catalog, opencode_config_dir=cd))
+
+    f0 = fp()
+    assert f0 == fp()  # stable across repeated inspections
+
+    (cd / "opencode.json").write_text(
+        json.dumps({"provider": {"lemonade": {"options": {"baseURL": "http://CHANGED"}}}}), encoding="utf-8"
+    )
+    assert f0 != fp()  # changed local state must change the fingerprint
