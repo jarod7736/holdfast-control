@@ -483,6 +483,59 @@ def _reconcile_context_for(
     )
 
 @app.command()
+def plan(
+    manifest_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/devices/jarod7736-laptop.yaml"), "--manifest", "-m", help="Device manifest YAML"
+    ),
+    catalog_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path("manifests/catalogs/credentials.yaml"), "--catalog", help="Credential catalog YAML"
+    ),
+    config_dir: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "opencode",  # noqa: B008 - idiomatic typer default
+        "--config-dir",
+        help="OpenCode config directory",
+    ),
+    local: bool = typer.Option(False, "--local", help="Print the plan without submitting it"),
+    config_path: Path = typer.Option(  # noqa: B008 - idiomatic typer default
+        Path.home() / ".config" / "holdfastctl" / "config.yaml",  # noqa: B008 - idiomatic typer default
+        "--config",
+        "-c",
+        help="Agent config file",
+    ),
+) -> None:
+    """Reconcile local state and submit a plan fingerprint to the control plane."""
+    from holdfastctl.capabilities import reconcile_device
+
+    results = reconcile_device(manifest_path, catalog_path, opencode_config_dir=config_dir)
+    for capability, plans in results.items():
+        for p in plans:
+            typer.echo(f"{p.action} {p.target} ({capability})")
+
+    if local:
+        typer.echo("\nLocal plan only; not submitted.")
+        return
+
+    config = _load_agent_config(config_path)
+    device_id = _resolve_device_id(config)
+    control_plane_url = config.get("control_plane_url", "https://holdfast.tail1c66ec.ts.net")
+    token_path = config.get("token_path") or str(config_path.parent / "report.token")
+
+    state = collect_device_state(manifest_path, catalog_path, opencode_config_dir=config_dir)
+    current_hash = device_state_fingerprint(state)
+    desired_commit = state["manifest_commit"]
+
+    reporter = StatusReporter(control_plane_url, device_id, token_path=token_path)
+    try:
+        created = reporter.create_plan(desired_commit, current_hash)
+    except ReportingError as e:
+        typer.echo(f"Error: plan submission to {control_plane_url} failed: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nPlan {created['id']} submitted ({created['approval_status']}).")
+    typer.echo(f"Approve with: holdfastctl approve {created['id']} --device {device_id} --control-plane {control_plane_url}")
+
+
+@app.command()
 def approve(
     plan_id: str = typer.Argument(..., help="Plan id to approve"),
     device_id_opt: str = typer.Option(..., "--device", "-d", help="Device the plan belongs to"),
@@ -498,7 +551,7 @@ def approve(
         raise typer.Exit(code=1)
     reporter = StatusReporter(control_plane, device_id_opt)
     try:
-        current = reporter.get_plan(plan_id)
+        current = reporter.get_plan(plan_id, admin_token=admin_token)
     except ReportingError as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
@@ -579,6 +632,10 @@ def apply(
             if applier is None:
                 continue
             for p in plans:
+                kind = p.target.split(":", 1)[0]
+                if p.action != "add" or kind not in ("provider", "mcp_server"):
+                    typer.echo(f"skip {p.action} {p.target} (advisory; fix by hand)")
+                    continue
                 context = _reconcile_context_for(manifest_path, catalog_path, config_dir)
                 entries.append(applier(p, context, backup_manager=backup_manager))
                 typer.echo(f"{p.action} {p.target}")

@@ -359,3 +359,48 @@ class TestReconcileDevice:
         catalog.write_text("providers: []\n")
         with pytest.raises(ValueError, match="Unknown capability"):
             reconcile_device(manifest, catalog, opencode_config_dir=tmp_path, env={})
+
+
+def test_opencode_apply_preserves_unmanaged_keys(tmp_path):
+    """Applying an add-provider plan must not drop plugin/agent/lsp/permission."""
+    from holdfastctl.backup import BackupManager
+    from holdfastctl.capabilities import OpencodeAdapter
+    from holdfastctl.reconcile import ConfigurationPlan
+
+    config_dir = tmp_path / "opencode"
+    config_dir.mkdir()
+    original = {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {"existing": {"options": {"baseURL": "http://keep"}}},
+        "plugin": ["oh-my-opencode-slim"],
+        "agent": {"explore": {"disable": False}},
+        "lsp": True,
+        "permission": {"edit": "allow"},
+    }
+    (config_dir / "opencode.json").write_text(json.dumps(original), encoding="utf-8")
+
+    plan = ConfigurationPlan(
+        plan_id="p1", device_id="d1", desired_commit="c", current_hash="h",
+        expiry_timestamp=0.0, action="add", target="provider:amd-halo",
+        source="desired", description="", checksum="",
+        target_data={"id": "amd-halo", "base_url": "http://amd-halo:13305/api/v1"},
+    )
+    context = make_context(tmp_path)
+    context.opencode_config_dir = config_dir
+
+    entry = OpencodeAdapter().apply(
+        plan, context,
+        backup_manager=BackupManager(backup_dir=tmp_path / "backups"),
+        allowed_prefixes=(config_dir,),
+    )
+
+    result = json.loads((config_dir / "opencode.json").read_text())
+    assert result["plugin"] == ["oh-my-opencode-slim"]
+    assert result["agent"] == {"explore": {"disable": False}}
+    assert result["lsp"] is True
+    assert result["permission"] == {"edit": "allow"}
+    assert result["$schema"] == "https://opencode.ai/config.json"
+    assert result["provider"]["existing"]["options"]["baseURL"] == "http://keep"
+    assert result["provider"]["amd-halo"]["options"]["baseURL"] == "http://amd-halo:13305/api/v1"
+    assert entry["target"] == str(config_dir / "opencode.json")
+    assert Path(str(entry["backup"])).is_file()

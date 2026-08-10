@@ -139,3 +139,34 @@ class TestConfigurationApplier:
         with patch('builtins.open', mock_open(read_data='{"old": "data"}')):
             result = applier.apply_plan(plan, Path("/tmp/test.json"))
             assert result is True
+
+class TestAtomicWrite:
+    """The module-level atomic_write primitive (robust replacement)."""
+
+    def test_writes_and_preserves_mode(self, tmp_path):
+        import os
+        import stat
+
+        from holdfastctl.apply import atomic_write
+
+        target = tmp_path / "config.json"
+        target.write_text("old")
+        os.chmod(target, 0o600)
+        atomic_write(target, "new", allowed_prefixes=(tmp_path,))
+        assert target.read_text() == "new"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+    def test_new_file_not_world_readable(self, tmp_path):
+        import stat
+
+        from holdfastctl.apply import atomic_write
+
+        target = tmp_path / "fresh.json"
+        atomic_write(target, "{}", allowed_prefixes=(tmp_path,))
+        assert stat.S_IMODE(target.stat().st_mode) & 0o077 == 0
+
+    def test_rejects_path_outside_allowlist(self, tmp_path):
+        from holdfastctl.apply import atomic_write
+
+        with pytest.raises(ApplyError, match="not an allowed managed path"):
+            atomic_write(tmp_path / "config.json", "{}", allowed_prefixes=(tmp_path / "nested",))

@@ -11,20 +11,70 @@ from pathlib import Path
 from typing import Any
 
 from .backup import BackupError, BackupManager
+from .manifest_schema import validate_path_safety
+
+DEFAULT_MANAGED_PREFIXES: tuple[Path, ...] = (
+    Path.home() / ".config" / "opencode",
+    Path.home() / ".config" / "holdfast",
+    Path.home() / ".claude" / "skills",
+    Path.home() / ".agents" / "skills",
+)
 
 
-def atomic_write(target: Path, new_config: dict[str, Any], allowed_prefixes: tuple[Path, ...] = ()) -> None:
-    """Write JSON config atomically to target path within allowed prefixes.
-    Simple implementation for tests.
+def _check_allowed(path: Path, allowed_prefixes: tuple[Path, ...]) -> Path:
+    """Resolve path and confirm it sits under an allowed prefix. Fail closed.
+
+    validate_path_safety only constrains paths to $HOME, so it is skipped when
+    allowed_prefixes has been overridden (e.g. tests writing under tmp_path,
+    outside $HOME) -- the injected prefixes already govern scope there. For the
+    default $HOME-rooted prefixes it still runs as an extra traversal check.
     """
-    # Ensure target is within allowed prefixes
-    if allowed_prefixes and not any(str(target).startswith(str(p)) for p in allowed_prefixes):
-        raise ValueError(f"Target {target} not within allowed prefixes")
-    # Write to temp file then rename
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, dir=target.parent) as tf:
-        json.dump(new_config, tf, indent=2)
-        temp_name = tf.name
-    shutil.move(temp_name, target)
+    if allowed_prefixes == DEFAULT_MANAGED_PREFIXES:
+        try:
+            validate_path_safety(str(path))
+        except ValueError as e:
+            raise ApplyError(str(e)) from e
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError) as e:
+        raise ApplyError(f"Path resolution failed, rejecting: {path}") from e
+    for prefix in allowed_prefixes:
+        try:
+            resolved.relative_to(prefix.resolve())
+        except ValueError:
+            continue
+        return resolved
+    raise ApplyError(f"{path} is not an allowed managed path")
+
+
+def atomic_write(
+    path: Path,
+    data: str,
+    *,
+    allowed_prefixes: tuple[Path, ...] = DEFAULT_MANAGED_PREFIXES,
+) -> None:
+    """Atomically replace path's contents with data.
+
+    The temp file is created in path's own directory so os.replace is a true
+    rename rather than a cross-filesystem copy. Mode is preserved when the file
+    already exists, and defaults to 0600 when it does not.
+    """
+    target = _check_allowed(path, allowed_prefixes)
+    mode = 0o600
+    if target.exists():
+        mode = os.stat(target).st_mode & 0o777
+    fd, temp_name = tempfile.mkstemp(dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp")
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, mode)
+        os.replace(temp_path, target)
+    except Exception as e:
+        temp_path.unlink(missing_ok=True)
+        raise ApplyError(f"Failed to write {target}: {e!s}") from e
 
 
 class ApplyError(Exception):

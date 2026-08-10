@@ -53,6 +53,17 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
     def require_admin(authorization: str | None) -> None:
         auth.authorize_admin(authorization, admin_token)
 
+    def require_admin_or_device(authorization: str | None, device_id: str) -> None:
+        """Accept the admin token, or that device's own report token."""
+        try:
+            require_admin(authorization)
+            return
+        except HTTPException:
+            pass
+        raw_token = auth.authorization_token(authorization)
+        with connection(database_path) as conn:
+            auth.authorize_report(conn, raw_token, device_id)
+
     @router.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "healthy"}
@@ -94,7 +105,7 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
 
     @router.post("/api/v1/devices/{device_id}/plans")
     def create_plan(device_id: str, request: PlanCreateRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        require_admin(authorization)
+        require_admin_or_device(authorization, device_id)
         plan_id = str(uuid.uuid4())
         expires_at = time.time() + request.expiry_hours * 3600
         created_at = time.time()
@@ -111,6 +122,18 @@ def create_router(database_path: str, admin_token: str | None = None, mint_key: 
         with connection(database_path) as conn:
             rows = conn.execute("SELECT * FROM plans WHERE device_id = ? ORDER BY created_at", (device_id,)).fetchall()
         return [dict(row) for row in rows]
+
+    @router.get("/api/v1/devices/{device_id}/plans/{plan_id}")
+    def get_plan(device_id: str, plan_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        require_admin_or_device(authorization, device_id)
+        with connection(database_path) as conn:
+            plan = conn.execute(
+                "SELECT approval_status, current_hash, desired_commit, expiry_timestamp FROM plans WHERE id = ? AND device_id = ?",
+                (plan_id, device_id),
+            ).fetchone()
+        if plan is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+        return dict(plan)
 
     @router.post("/api/v1/devices/{device_id}/plans/{plan_id}/approve")
     def approve_plan(device_id: str, plan_id: str, request: PlanApprovalRequest, authorization: str | None = Header(default=None)) -> dict[str, str]:

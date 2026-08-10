@@ -94,3 +94,8 @@ class TestBackupManager:
         # This is hard to test without creating actual backup files
         # But we can at least ensure it doesn't crash
         manager.cleanup_old_backups(Path("/tmp/nonexistent.txt"))
+
+def test_create_backup_returns_none_for_missing_source(tmp_path):
+    """A file about to be created has nothing to restore; no empty backup."""
+    manager = BackupManager(backup_dir=tmp_path / "backups")
+    assert manager.create_backup(tmp_path / "absent.json") is None

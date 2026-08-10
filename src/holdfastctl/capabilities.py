@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from holdfastctl.reconcile import (
     ConfigurationPlan,
@@ -23,6 +23,9 @@ from holdfastctl.reconcile import (
     load_current_opencode_state,
     normalize_id,
 )
+
+if TYPE_CHECKING:
+    from holdfastctl.backup import BackupManager
 
 Resolver = Callable[[str], str | None]
 HttpGet = Callable[..., tuple[int, Any] | None]
@@ -172,6 +175,57 @@ class OpencodeAdapter:
         plans = generate_opencode_plan(current, desired_state)
         plans.extend(self._probe_mcp_urls(current, context))
         return plans
+
+    def apply(
+        self,
+        plan: ConfigurationPlan,
+        context: ReconcileContext,
+        *,
+        backup_manager: "BackupManager",
+        allowed_prefixes: tuple[Path, ...] | None = None,
+    ) -> dict[str, str | int]:
+        """Merge one plan action into opencode.json, preserving everything else.
+
+        Returns a backup-manifest entry: {"target", "backup", "mode"}. Only
+        provider and mcp_server targets are applicable; anything else (env
+        references, repair probes) is advisory and rejected here.
+        """
+        import json as _json
+
+        from holdfastctl.apply import DEFAULT_MANAGED_PREFIXES, ApplyError, atomic_write
+
+        config_file = context.opencode_config_dir / "opencode.json"
+        prefixes = allowed_prefixes if allowed_prefixes is not None else DEFAULT_MANAGED_PREFIXES
+
+        config: dict[str, Any] = {}
+        if config_file.is_file():
+            config = _json.loads(config_file.read_text(encoding="utf-8"))
+
+        kind, _, name = plan.target.partition(":")
+        data = plan.target_data or {}
+
+        if kind == "provider":
+            providers = config.setdefault("provider", {})
+            entry = providers.setdefault(name, {})
+            options = entry.setdefault("options", {})
+            if data.get("base_url"):
+                options["baseURL"] = data["base_url"]
+            entry.setdefault("name", data.get("name", name))
+        elif kind == "mcp_server":
+            servers = config.setdefault("mcp", {})
+            entry = servers.setdefault(name, {})
+            if data.get("url"):
+                entry["url"] = data["url"]
+            entry.setdefault("type", "remote")
+            entry.setdefault("enabled", True)
+        else:
+            raise ApplyError(f"OpencodeAdapter cannot apply target '{plan.target}'")
+
+        mode = config_file.stat().st_mode & 0o777 if config_file.exists() else 0o600
+        backup_path = backup_manager.create_backup(config_file)
+        atomic_write(config_file, _json.dumps(config, indent=2) + "\n", allowed_prefixes=prefixes)
+
+        return {"target": str(config_file), "backup": str(backup_path) if backup_path else "", "mode": mode}
 
     def _probe_mcp_urls(self, current: dict[str, Any], context: ReconcileContext) -> list[ConfigurationPlan]:
         """Check that each configured MCP URL actually reaches the server it names.

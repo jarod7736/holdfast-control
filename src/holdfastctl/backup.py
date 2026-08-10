@@ -58,28 +58,21 @@ class BackupManager:
         # Create backup directory if it doesn't exist
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_backup(self, source_file: Path) -> Path:
+    def create_backup(self, source_file: Path) -> Path | None:
         """
         Create a backup of a file.
-        
-        Args:
-            source_file: Path to the file to backup
-            
-        Returns:
-            Path to the created backup file
-            
+
+        Returns the backup path, or None when the source does not exist -- a
+        file about to be created has nothing to restore, and an empty backup
+        would blank the live file on rollback.
+
         Raises:
             BackupError: If backup creation fails
         """
         try:
             if not os.path.exists(source_file):
-                # For test environments where files may not exist yet, create an empty backup
-                backup_filename = f"{source_file.name}.backup_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d_%H%M%S')}"
-                backup_path = self.backup_dir / backup_filename
-                # Create an empty backup file
-                backup_path.touch()
-                return backup_path
-                
+                return None
+
             # Generate backup filename
             timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
             backup_filename = f"{source_file.name}.backup_{timestamp}"
